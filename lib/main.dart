@@ -6,6 +6,8 @@ import 'core/config.dart';
 import 'ui/chat_page.dart';
 import 'ui/plan_page.dart';
 import 'ui/vision_page.dart';
+import 'ui/widgets/trend_chart.dart';
+import 'ui/widgets/activity_heatmap.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
