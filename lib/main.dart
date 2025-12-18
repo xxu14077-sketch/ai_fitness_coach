@@ -468,7 +468,7 @@ class _HomeBodyState extends State<_HomeBody> {
                 icon: Icons.monitor_heart,
                 color: Colors.redAccent,
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PlanPage()),
+                  MaterialPageRoute(builder: (_) => PlanPage()),
                 ),
               ),
               _buildFeatureCard(
@@ -478,7 +478,7 @@ class _HomeBodyState extends State<_HomeBody> {
                 icon: Icons.camera_enhance,
                 color: Colors.teal,
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const VisionPage()),
+                  MaterialPageRoute(builder: (_) => VisionPage()),
                 ),
               ),
               _buildFeatureCard(
