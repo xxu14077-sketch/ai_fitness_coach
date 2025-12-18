@@ -110,9 +110,9 @@ class _LoginPageState extends State<LoginPage> {
                 'AI Fitness Coach',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.secondaryColor,
-                ),
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.secondaryColor,
+                    ),
               ),
               const SizedBox(height: 32),
               TextField(
@@ -461,17 +461,23 @@ class _HomeBodyState extends State<_HomeBody> {
             children: [
               _buildFeatureCard(
                 context,
-                title: 'AI 增强计划',
-                subtitle: 'Claude 深度定制',
-                icon: Icons.auto_awesome,
-                color: Colors.purple,
-                onTap: isPro
-                    ? () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const AiPlanEnhancePage(),
-                        ),
-                      )
-                    : null,
+                title: '今日专属计划',
+                subtitle: '根据状态实时调整',
+                icon: Icons.monitor_heart,
+                color: Colors.redAccent,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PlanPage()),
+                ),
+              ),
+              _buildFeatureCard(
+                context,
+                title: '动作矫正',
+                subtitle: 'AI 视觉分析',
+                icon: Icons.camera_enhance,
+                color: Colors.teal,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const VisionPage()),
+                ),
               ),
               _buildFeatureCard(
                 context,
@@ -490,24 +496,10 @@ class _HomeBodyState extends State<_HomeBody> {
                 title: '器械助手',
                 subtitle: '拍照查用法',
                 icon: Icons.fitness_center,
-                color: Colors.teal,
+                color: Colors.blue,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const EquipmentInfoPage()),
                 ),
-              ),
-              _buildFeatureCard(
-                context,
-                title: '基础计划',
-                subtitle: '快速生成',
-                icon: Icons.flash_on,
-                color: Colors.blue,
-                onTap: isPro
-                    ? () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const PlanOverviewPage(),
-                        ),
-                      )
-                    : null,
               ),
             ],
           ),
@@ -657,9 +649,8 @@ class _PlanOverviewPageState extends State<PlanOverviewPage> {
                         ...List.generate(
                           (_cycle?['daily_sessions'] as List).length,
                           (index) {
-                            final session =
-                                (_cycle?['daily_sessions'] as List)[index]
-                                    as Map<String, dynamic>;
+                            final session = (_cycle?['daily_sessions']
+                                as List)[index] as Map<String, dynamic>;
                             final items = session['items'] as List<dynamic>;
                             return Card(
                               child: Padding(
@@ -748,9 +739,8 @@ class _MyPlansPageState extends State<MyPlansPage> {
     });
     try {
       final uid = Supabase.instance.client.auth.currentUser!.id;
-      final since = DateTime.now()
-          .subtract(const Duration(days: 7))
-          .toIso8601String();
+      final since =
+          DateTime.now().subtract(const Duration(days: 7)).toIso8601String();
       final res = await Supabase.instance.client
           .from('training_plans')
           .select('id, cycle_json, created_at')
@@ -779,49 +769,50 @@ class _MyPlansPageState extends State<MyPlansPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? Center(
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _plans.length,
-              itemBuilder: (context, index) {
-                final p = _plans[index];
-                final cycle = p['cycle_json'] as Map<String, dynamic>;
-                final days = (cycle['daily_sessions'] as List).length;
-                return Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    leading: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.fitness_center,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                    title: Text(
-                      '${cycle['split']} 训练',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      '包含 $days 个训练日\n创建于 ${p['created_at'].toString().substring(0, 10)}',
-                    ),
-                    isThreeLine: true,
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => PlanDetailPage(cycle: cycle),
+              ? Center(
+                  child:
+                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _plans.length,
+                  itemBuilder: (context, index) {
+                    final p = _plans[index];
+                    final cycle = p['cycle_json'] as Map<String, dynamic>;
+                    final days = (cycle['daily_sessions'] as List).length;
+                    return Card(
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(16),
+                        leading: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryColor.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.fitness_center,
+                            color: AppTheme.primaryColor,
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
+                        title: Text(
+                          '${cycle['split']} 训练',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          '包含 $days 个训练日\n创建于 ${p['created_at'].toString().substring(0, 10)}',
+                        ),
+                        isThreeLine: true,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => PlanDetailPage(cycle: cycle),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -996,90 +987,90 @@ class _MyWorkoutsPageState extends State<MyWorkoutsPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-          ? Center(
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
-            )
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _pickFrom,
-                          child: Text(
-                            _from != null
-                                ? _from!.toIso8601String().substring(0, 10)
-                                : '开始日期',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _pickTo,
-                          child: Text(
-                            _to != null
-                                ? _to!.toIso8601String().substring(0, 10)
-                                : '结束日期',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () async {
-                          setState(() {
-                            _from = null;
-                            _to = null;
-                          });
-                          await _fetch();
-                        },
-                        icon: const Icon(Icons.clear_all),
-                        tooltip: '清除筛选',
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _items.length,
-                    itemBuilder: (context, index) {
-                      final it = _items[index];
-                      final pct = it['completion_pct'] as int?;
-                      final notes =
-                          (it['feedback_json']
-                                  as Map<String, dynamic>?)?['notes']
-                              as String?;
-                      return Card(
-                        child: ListTile(
-                          leading: CircularProgressIndicator(
-                            value: (pct ?? 0) / 100,
-                            backgroundColor: Colors.grey.shade200,
-                          ),
-                          title: Text(
-                            '完成度 ${pct ?? 0}%',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            '${it['date'] ?? it['created_at'].substring(0, 10)}\n${notes ?? "无备注"}',
-                          ),
-                          isThreeLine: true,
-                          trailing: IconButton(
-                            icon: const Icon(
-                              Icons.delete_outline,
-                              color: Colors.red,
+              ? Center(
+                  child:
+                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                )
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _pickFrom,
+                              child: Text(
+                                _from != null
+                                    ? _from!.toIso8601String().substring(0, 10)
+                                    : '开始日期',
+                              ),
                             ),
-                            onPressed: () => _delete(it['id'] as String),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _pickTo,
+                              child: Text(
+                                _to != null
+                                    ? _to!.toIso8601String().substring(0, 10)
+                                    : '结束日期',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            onPressed: () async {
+                              setState(() {
+                                _from = null;
+                                _to = null;
+                              });
+                              await _fetch();
+                            },
+                            icon: const Icon(Icons.clear_all),
+                            tooltip: '清除筛选',
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) {
+                          final it = _items[index];
+                          final pct = it['completion_pct'] as int?;
+                          final notes = (it['feedback_json']
+                              as Map<String, dynamic>?)?['notes'] as String?;
+                          return Card(
+                            child: ListTile(
+                              leading: CircularProgressIndicator(
+                                value: (pct ?? 0) / 100,
+                                backgroundColor: Colors.grey.shade200,
+                              ),
+                              title: Text(
+                                '完成度 ${pct ?? 0}%',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Text(
+                                '${it['date'] ?? it['created_at'].substring(0, 10)}\n${notes ?? "无备注"}',
+                              ),
+                              isThreeLine: true,
+                              trailing: IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () => _delete(it['id'] as String),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
     );
   }
 }
@@ -1356,7 +1347,6 @@ class _AiPlanEnhancePageState extends State<AiPlanEnhancePage> {
                 ),
               ),
             ),
-
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -1371,9 +1361,8 @@ class _AiPlanEnhancePageState extends State<AiPlanEnhancePage> {
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: (_cycle!['daily_sessions'] as List).length,
                 itemBuilder: (context, index) {
-                  final s =
-                      (_cycle!['daily_sessions'] as List)[index]
-                          as Map<String, dynamic>;
+                  final s = (_cycle!['daily_sessions'] as List)[index]
+                      as Map<String, dynamic>;
                   final items = s['items'] as List<dynamic>;
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -1482,8 +1471,8 @@ class _NutritionEstimatePageState extends State<NutritionEstimatePage> {
                                 ? null
                                 : () async {
                                     setState(() => _uploading = true);
-                                    final url =
-                                        await StorageHelper.pickAndUploadImage();
+                                    final url = await StorageHelper
+                                        .pickAndUploadImage();
                                     setState(() {
                                       _uploading = false;
                                       if (url != null) _urlCtrl.text = url;
@@ -1666,8 +1655,8 @@ class _EquipmentInfoPageState extends State<EquipmentInfoPage> {
                                 ? null
                                 : () async {
                                     setState(() => _uploading = true);
-                                    final url =
-                                        await StorageHelper.pickAndUploadImage();
+                                    final url = await StorageHelper
+                                        .pickAndUploadImage();
                                     setState(() {
                                       _uploading = false;
                                       if (url != null) _urlCtrl.text = url;

@@ -4,7 +4,7 @@ echo      AI Fitness Coach - Auto Deploy
 echo ==========================================
 echo.
 
-echo [1/4] Building Flutter Web App...
+echo [1/3] Building Flutter Web App...
 call flutter build web --release
 if %errorlevel% neq 0 (
     echo Build failed!
@@ -13,20 +13,17 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [2/4] Updating Deployment Files...
-if exist public (
-    rmdir /s /q public
-)
-mkdir public
-xcopy /s /e /y build\web\* public\ > nul
+echo [2/3] Preparing Files for Root Deployment...
+:: 复制构建产物到根目录，确保 Vercel 能直接读取
+xcopy /s /e /y build\web\* . > nul
 
 echo.
-echo [3/4] Pushing to GitHub...
-git add public
+echo [3/3] Pushing to GitHub...
+git add .
 git commit -m "Deploy: Update web build %date% %time%"
 git push origin main
 
 echo.
-echo [4/4] Done! Vercel will auto-deploy shortly.
+echo [SUCCESS] Done! Vercel will auto-deploy shortly.
 echo ==========================================
 pause
