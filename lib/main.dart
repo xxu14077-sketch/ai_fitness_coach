@@ -4,6 +4,8 @@ import 'core/storage.dart';
 import 'ui/theme.dart';
 import 'core/config.dart';
 import 'ui/chat_page.dart';
+import 'ui/plan_page.dart';
+import 'ui/vision_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -547,10 +549,6 @@ class _HomeBodyState extends State<_HomeBody> {
     );
   }
 }
-
-// ... Keep remaining pages (PlanOverviewPage, MyPlansPage, etc.) as they are for now,
-// just ensure they compile. To save space/tokens, I will append the rest of the file content below.
-// I will rewrite the REST of the file content from the previous read, ensuring no code is lost.
 
 class PlanOverviewPage extends StatefulWidget {
   const PlanOverviewPage({super.key});
