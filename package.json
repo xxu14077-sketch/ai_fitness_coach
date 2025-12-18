@@ -1,0 +1,8 @@
+{
+  "name": "ai_fitness_coach",
+  "version": "1.0.0",
+  "description": "Flutter Web App",
+  "scripts": {
+    "build": "echo 'Skipping build, serving static assets'"
+  }
+}
