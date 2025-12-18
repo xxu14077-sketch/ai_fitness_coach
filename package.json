@@ -1,7 +1,0 @@
-{
-  "name": "ai_fitness_coach",
-  "version": "1.0.0",
-  "scripts": {
-    "build": "echo 'Building static assets...'"
-  }
-}
