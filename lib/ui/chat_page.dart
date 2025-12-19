@@ -1,10 +1,13 @@
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+import 'package:ai_fitness_coach/ui/settings_page.dart';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:ai_fitness_coach/ui/theme.dart';
+import 'package:flutter/foundation.dart'; // For kIsWeb
+import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data'; // For Uint8List
 import 'package:universal_html/html.dart' as html;
 import 'package:universal_html/js_util.dart' as js_util;
 
@@ -16,6 +19,7 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
+  // ... (Previous existing state variables)
   final _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Map<String, String>> _messages = [
@@ -26,10 +30,30 @@ class _ChatPageState extends State<ChatPage> {
   ];
   bool _loading = false;
 
-  // Image Upload State
+  // Image Upload State (From previous turn)
   Uint8List? _selectedImageBytes;
   String? _selectedFileName;
   bool _isAnalyzingImage = false;
+
+  // AI Service Config (Loaded from Settings)
+  String? _apiKey;
+  String? _baseUrl;
+  String? _systemPrompt;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAiConfig();
+  }
+
+  Future<void> _loadAiConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _apiKey = prefs.getString('ai_api_key');
+      _baseUrl = prefs.getString('ai_base_url');
+      _systemPrompt = prefs.getString('ai_system_prompt');
+    });
+  }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -67,18 +91,13 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  // Use the local TFJS logic to analyze the image before sending
   Future<String?> _analyzeImageLocally(Uint8List bytes) async {
-    if (!kIsWeb) return null; // Only support web for this TFJS demo
+    if (!kIsWeb) return null;
 
     try {
       setState(() => _isAnalyzingImage = true);
-
-      // 1. Create Blob URL
       final blob = html.Blob([bytes]);
       final url = html.Url.createObjectUrlFromBlob(blob);
-
-      // 2. Create hidden image element
       final imgElement = html.ImageElement(src: url);
       imgElement.id =
           'chat-vision-target-${DateTime.now().millisecondsSinceEpoch}';
@@ -86,15 +105,10 @@ class _ChatPageState extends State<ChatPage> {
       imgElement.style.top = '-9999px';
       imgElement.style.left = '-9999px';
       html.document.body!.append(imgElement);
-
       await imgElement.onLoad.first;
-
-      // 3. Call JS
       final promise =
           js_util.callMethod(html.window, 'runAiAnalysis', [imgElement.id]);
       final resultJson = await js_util.promiseToFuture(promise);
-
-      // Cleanup
       imgElement.remove();
       html.Url.revokeObjectUrl(url);
 
@@ -112,17 +126,60 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // NEW: Direct API Call logic
+  Future<String> _callAiApi(String userContent) async {
+    // Refresh config just in case
+    await _loadAiConfig();
+
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      throw '请先在右上角的设置中配置 API Key (如 DeepSeek)。';
+    }
+
+    final url = _baseUrl ?? 'https://api.deepseek.com/v1';
+    final systemPrompt = _systemPrompt ?? 'You are a helpful fitness coach.';
+
+    // Construct messages history for context
+    final List<Map<String, dynamic>> apiMessages = [
+      {'role': 'system', 'content': systemPrompt},
+      // Add last 5 messages for context context
+      ..._messages
+          .take(10)
+          .map((m) => {'role': m['role'], 'content': m['content']}),
+    ];
+
+    try {
+      final response = await http.post(
+        Uri.parse('$url/chat/completions'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'deepseek-chat', // Or deepseek-reasoner
+          'messages': apiMessages,
+          'temperature': 0.7,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return data['choices'][0]['message']['content'];
+      } else {
+        throw 'API Error: ${response.statusCode} - ${response.body}';
+      }
+    } catch (e) {
+      throw '连接 AI 失败: $e';
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty && _selectedImageBytes == null) return;
 
-    // Construct the user message content
     String userContent = text;
-    String? analysisReport;
 
     setState(() {
       _loading = true;
-      // Show user message immediately
       if (_selectedImageBytes != null) {
         _messages.add({'role': 'user', 'content': '📷 [图片已上传] $text'});
       } else {
@@ -133,20 +190,17 @@ class _ChatPageState extends State<ChatPage> {
     _controller.clear();
     _scrollToBottom();
 
-    // If image present, analyze it first
+    // Image analysis logic
     if (_selectedImageBytes != null) {
       try {
-        analysisReport = await _analyzeImageLocally(_selectedImageBytes!);
+        final analysisReport = await _analyzeImageLocally(_selectedImageBytes!);
         if (analysisReport != null) {
           userContent += "\n\n$analysisReport";
-          // Add a system-like message to show analysis happened
           if (mounted) {
             _messages.add(
                 {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
             _scrollToBottom();
           }
-        } else {
-          userContent += "\n\n[附带了一张图片，但未能检测到清晰人体姿态]";
         }
       } catch (e) {
         debugPrint("Image analysis error: $e");
@@ -154,55 +208,39 @@ class _ChatPageState extends State<ChatPage> {
       _clearImage();
     }
 
+    // Determine whether to use Real API or Fallback
     try {
-      // 检查是否已登录
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) {
-        throw '未登录，请先登录后再试。';
-      }
+      await _loadAiConfig(); // Ensure we have latest settings
 
-      // 尝试调用 Edge Function
-      try {
-        final res = await Supabase.instance.client.functions.invoke(
-          'chat-stream',
-          body: {'query': userContent},
-        );
-
-        final data = res.data;
-        String reply = 'AI 思考中...';
-        if (data is Map && data.containsKey('text')) {
-          reply = data['text'];
-        } else if (data is String) {
-          reply = data;
-        } else {
-          reply = '抱歉，我暂时无法回答这个问题。';
-        }
-
+      if (_apiKey != null && _apiKey!.isNotEmpty) {
+        // USE REAL API
+        final reply = await _callAiApi(userContent);
         if (mounted) {
           setState(() {
             _messages.add({'role': 'assistant', 'content': reply});
           });
-          _scrollToBottom();
         }
-      } catch (functionError) {
-        // 如果云函数调用失败（例如函数不存在或网络拦截），回退到本地模拟回复
-        debugPrint('Edge Function Error: $functionError');
-
-        // 模拟一个智能回复
+      } else {
+        // USE MOCK / SUPABASE FALLBACK
         await Future.delayed(const Duration(seconds: 1));
         final mockReply = _getMockReply(userContent);
-
         if (mounted) {
           setState(() {
             _messages.add({'role': 'assistant', 'content': mockReply});
+            // Add a tip about setting up real AI
+            if (_messages.length < 5) {
+              _messages.add({
+                'role': 'system',
+                'content': '💡 提示：点击右上角设置图标，配置 DeepSeek API Key 即可体验真正的 AI 智能。'
+              });
+            }
           });
-          _scrollToBottom();
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _messages.add({'role': 'assistant', 'content': '发生错误: $e'});
+          _messages.add({'role': 'assistant', 'content': '⚠️ $e'});
         });
       }
     } finally {
@@ -215,7 +253,6 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // 本地备用回复逻辑，确保演示时不冷场
   String _getMockReply(String input) {
     if (input.contains('视觉分析数据')) {
       return '我已收到您的动作分析数据。从关键点来看，您的深蹲动作幅度标准，但注意膝盖不要过度内扣。建议在下一次训练中尝试减小站距，感受臀部发力。';
@@ -247,9 +284,20 @@ class _ChatPageState extends State<ChatPage> {
         ),
         centerTitle: true,
         elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
+          ),
+        ],
       ),
       body: Container(
-        color: const Color(0xFFF8FAFC), // 浅灰背景
+        color: const Color(0xFFF8FAFC),
         child: Column(
           children: [
             Expanded(
@@ -260,7 +308,17 @@ class _ChatPageState extends State<ChatPage> {
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final msg = _messages[index];
-                  final isUser = msg['role'] == 'user';
+                  final role = msg['role'];
+                  if (role == 'system') {
+                    return Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Center(
+                          child: Text(msg['content']!,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.grey))),
+                    );
+                  }
+                  final isUser = role == 'user';
                   return _buildMessageBubble(isUser, msg['content']!);
                 },
               ),
@@ -294,7 +352,7 @@ class _ChatPageState extends State<ChatPage> {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
-        constraints: const BoxConstraints(maxWidth: 300), // 限制最大宽度
+        constraints: const BoxConstraints(maxWidth: 300),
         decoration: BoxDecoration(
           color: isUser ? AppTheme.primaryColor : Colors.white,
           borderRadius: BorderRadius.only(
@@ -343,7 +401,6 @@ class _ChatPageState extends State<ChatPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image Preview
             if (_selectedImageBytes != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
@@ -378,10 +435,8 @@ class _ChatPageState extends State<ChatPage> {
                   ],
                 ),
               ),
-
             Row(
               children: [
-                // Camera / Image Button
                 IconButton(
                   onPressed: _loading ? null : _pickImage,
                   icon: Icon(Icons.camera_alt_rounded,
