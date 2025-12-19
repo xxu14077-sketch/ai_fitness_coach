@@ -1,6 +1,16 @@
 {
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    {
+      "source": "/api/deepseek/:path*",
+      "destination": "https://api.deepseek.com/:path*"
+    },
+    {
+      "source": "/api/openai/:path*",
+      "destination": "https://api.openai.com/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

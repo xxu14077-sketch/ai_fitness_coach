@@ -147,9 +147,24 @@ class _ChatPageState extends State<ChatPage> {
           .map((m) => {'role': m['role'], 'content': m['content']}),
     ];
 
+    var apiUrl = Uri.parse('$url/chat/completions');
+
+    // CORS PROXY LOGIC FOR WEB
+    if (kIsWeb) {
+      if (url.contains('api.deepseek.com')) {
+        // Use Vercel Rewrite Proxy
+        // Map https://api.deepseek.com/v1 -> /api/deepseek/v1
+        final path = Uri.parse(url).path; // e.g. /v1
+        apiUrl = Uri.parse('/api/deepseek$path/chat/completions');
+      } else if (url.contains('api.openai.com')) {
+        final path = Uri.parse(url).path;
+        apiUrl = Uri.parse('/api/openai$path/chat/completions');
+      }
+    }
+
     try {
       final response = await http.post(
-        Uri.parse('$url/chat/completions'),
+        apiUrl,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_apiKey',
