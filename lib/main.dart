@@ -151,6 +151,19 @@ class _LoginPageState extends State<LoginPage> {
                 onPressed: _loading ? null : _signUp,
                 child: const Text('注册账号'),
               ),
+              const SizedBox(height: 16),
+              const TrendChart(),
+              const SizedBox(height: 16),
+              const ActivityHeatmap(),
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Center(
+                  child: Text(
+                    'v1.1 - Charts Enabled',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
+              ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -447,6 +460,21 @@ class _HomeBodyState extends State<_HomeBody> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(_error!, style: const TextStyle(color: Colors.red)),
             ),
+
+          const SizedBox(height: 16),
+          const TrendChart(),
+          const SizedBox(height: 16),
+          const ActivityHeatmap(),
+
+          const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: Center(
+              child: Text(
+                'v1.1 - Charts Enabled',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ),
+          ),
 
           const SizedBox(height: 24),
           const Text(
