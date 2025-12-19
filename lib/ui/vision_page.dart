@@ -51,8 +51,15 @@ class _VisionPageState extends State<VisionPage> {
         final imgElement = html.ImageElement(src: url);
         imgElement.id =
             'ai-vision-target-${DateTime.now().millisecondsSinceEpoch}';
-        // Hide it but append to body so TFJS can read it
-        imgElement.style.display = 'none';
+
+        // CRITICAL FIX: To get accurate dimensions for MoveNet, the image must be rendered
+        // but can be hidden from view.
+        // We append it to a hidden container to ensure it has layout dimensions if needed,
+        // although loading it into memory is usually enough for .naturalWidth/Height.
+        imgElement.style.position = 'absolute';
+        imgElement.style.top = '-9999px';
+        imgElement.style.left = '-9999px';
+
         html.document.body!.append(imgElement);
 
         // Wait for image to load

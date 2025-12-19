@@ -47478,7 +47478,11 @@ if(d!=null)b.src=d
 j=b
 j.id="ai-vision-target-"+Date.now()
 d=j.style
-d.display="none"
+d.position="absolute"
+d=j.style
+d.top="-9999px"
+d=j.style
+d.left="-9999px"
 c.body.appendChild(j).toString
 s=7
 return A.w(new A.Hw(j,"load",!1,t.rE).gZ(0),$async$uS)
