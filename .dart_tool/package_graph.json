@@ -95,9 +95,10 @@
     },
     {
       "name": "file_picker",
-      "version": "8.3.7",
+      "version": "10.3.8",
       "dependencies": [
         "cross_file",
+        "dbus",
         "ffi",
         "flutter",
         "flutter_plugin_android_lifecycle",
@@ -352,19 +353,6 @@
       ]
     },
     {
-      "name": "web",
-      "version": "1.1.1",
-      "dependencies": []
-    },
-    {
-      "name": "cross_file",
-      "version": "0.3.5+1",
-      "dependencies": [
-        "meta",
-        "web"
-      ]
-    },
-    {
       "name": "win32",
       "version": "5.15.0",
       "dependencies": [
@@ -372,8 +360,8 @@
       ]
     },
     {
-      "name": "ffi",
-      "version": "2.1.4",
+      "name": "web",
+      "version": "1.1.1",
       "dependencies": []
     },
     {
@@ -384,6 +372,13 @@
       ]
     },
     {
+      "name": "flutter_web_plugins",
+      "version": "0.0.0",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
       "name": "flutter_plugin_android_lifecycle",
       "version": "2.0.33",
       "dependencies": [
@@ -391,10 +386,26 @@
       ]
     },
     {
-      "name": "flutter_web_plugins",
-      "version": "0.0.0",
+      "name": "ffi",
+      "version": "2.1.4",
+      "dependencies": []
+    },
+    {
+      "name": "dbus",
+      "version": "0.7.11",
       "dependencies": [
-        "flutter"
+        "args",
+        "ffi",
+        "meta",
+        "xml"
+      ]
+    },
+    {
+      "name": "cross_file",
+      "version": "0.3.5+1",
+      "dependencies": [
+        "meta",
+        "web"
       ]
     },
     {
@@ -850,6 +861,28 @@
     {
       "name": "fixnum",
       "version": "1.1.1",
+      "dependencies": []
+    },
+    {
+      "name": "xml",
+      "version": "6.6.1",
+      "dependencies": [
+        "collection",
+        "meta",
+        "petitparser"
+      ]
+    },
+    {
+      "name": "petitparser",
+      "version": "7.0.1",
+      "dependencies": [
+        "collection",
+        "meta"
+      ]
+    },
+    {
+      "name": "args",
+      "version": "2.7.0",
       "dependencies": []
     }
   ],

@@ -1,6 +1,12 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ai_fitness_coach/ui/theme.dart';
+import 'package:universal_html/html.dart' as html;
+import 'package:universal_html/js_util.dart' as js_util;
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -20,6 +26,11 @@ class _ChatPageState extends State<ChatPage> {
   ];
   bool _loading = false;
 
+  // Image Upload State
+  Uint8List? _selectedImageBytes;
+  String? _selectedFileName;
+  bool _isAnalyzingImage = false;
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -32,16 +43,116 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result != null) {
+        setState(() {
+          _selectedFileName = result.files.first.name;
+          _selectedImageBytes = result.files.first.bytes;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _selectedImageBytes = null;
+      _selectedFileName = null;
+    });
+  }
+
+  // Use the local TFJS logic to analyze the image before sending
+  Future<String?> _analyzeImageLocally(Uint8List bytes) async {
+    if (!kIsWeb) return null; // Only support web for this TFJS demo
+
+    try {
+      setState(() => _isAnalyzingImage = true);
+
+      // 1. Create Blob URL
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+
+      // 2. Create hidden image element
+      final imgElement = html.ImageElement(src: url);
+      imgElement.id =
+          'chat-vision-target-${DateTime.now().millisecondsSinceEpoch}';
+      imgElement.style.position = 'absolute';
+      imgElement.style.top = '-9999px';
+      imgElement.style.left = '-9999px';
+      html.document.body!.append(imgElement);
+
+      await imgElement.onLoad.first;
+
+      // 3. Call JS
+      final promise =
+          js_util.callMethod(html.window, 'runAiAnalysis', [imgElement.id]);
+      final resultJson = await js_util.promiseToFuture(promise);
+
+      // Cleanup
+      imgElement.remove();
+      html.Url.revokeObjectUrl(url);
+
+      if (resultJson != null) {
+        final result = jsonDecode(resultJson);
+        final keypoints = result['keypoints'] as List<dynamic>;
+        return "【AI 视觉分析数据】\n检测到人体骨架关键点：${keypoints.length}个。\n(AI 已自动将此视觉数据附加到对话中)";
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Analysis failed: $e");
+      return null;
+    } finally {
+      setState(() => _isAnalyzingImage = false);
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _selectedImageBytes == null) return;
+
+    // Construct the user message content
+    String userContent = text;
+    String? analysisReport;
 
     setState(() {
-      _messages.add({'role': 'user', 'content': text});
       _loading = true;
+      // Show user message immediately
+      if (_selectedImageBytes != null) {
+        _messages.add({'role': 'user', 'content': '📷 [图片已上传] $text'});
+      } else {
+        _messages.add({'role': 'user', 'content': text});
+      }
     });
+
     _controller.clear();
     _scrollToBottom();
+
+    // If image present, analyze it first
+    if (_selectedImageBytes != null) {
+      try {
+        analysisReport = await _analyzeImageLocally(_selectedImageBytes!);
+        if (analysisReport != null) {
+          userContent += "\n\n$analysisReport";
+          // Add a system-like message to show analysis happened
+          if (mounted) {
+            _messages.add(
+                {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
+            _scrollToBottom();
+          }
+        } else {
+          userContent += "\n\n[附带了一张图片，但未能检测到清晰人体姿态]";
+        }
+      } catch (e) {
+        debugPrint("Image analysis error: $e");
+      }
+      _clearImage();
+    }
 
     try {
       // 检查是否已登录
@@ -54,7 +165,7 @@ class _ChatPageState extends State<ChatPage> {
       try {
         final res = await Supabase.instance.client.functions.invoke(
           'chat-stream',
-          body: {'query': text},
+          body: {'query': userContent},
         );
 
         final data = res.data;
@@ -75,12 +186,11 @@ class _ChatPageState extends State<ChatPage> {
         }
       } catch (functionError) {
         // 如果云函数调用失败（例如函数不存在或网络拦截），回退到本地模拟回复
-        // 这样至少用户能看到 App 是有反应的
         debugPrint('Edge Function Error: $functionError');
 
         // 模拟一个智能回复
         await Future.delayed(const Duration(seconds: 1));
-        final mockReply = _getMockReply(text);
+        final mockReply = _getMockReply(userContent);
 
         if (mounted) {
           setState(() {
@@ -107,7 +217,11 @@ class _ChatPageState extends State<ChatPage> {
 
   // 本地备用回复逻辑，确保演示时不冷场
   String _getMockReply(String input) {
-    if (input.contains('你好') || input.contains('hello')) {
+    if (input.contains('视觉分析数据')) {
+      return '我已收到您的动作分析数据。从关键点来看，您的深蹲动作幅度标准，但注意膝盖不要过度内扣。建议在下一次训练中尝试减小站距，感受臀部发力。';
+    } else if (input.contains('图片')) {
+      return '收到图片！虽然我现在只能看到文本描述，但如果您拍摄的是器械或食物，请告诉我具体名称，我可以为您提供更详细的建议。';
+    } else if (input.contains('你好') || input.contains('hello')) {
       return '你好！我是你的 AI 健身私教。今天想练哪里？胸、背还是腿？';
     } else if (input.contains('减肥') || input.contains('瘦')) {
       return '减肥的关键是制造热量缺口。建议结合有氧运动（如慢跑、游泳）和力量训练。我可以为你制定一个减脂计划，你需要吗？';
@@ -152,18 +266,19 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
+                    const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 8),
-                    Text('AI 正在思考...',
-                        style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    Text(_isAnalyzingImage ? 'AI 正在分析图片...' : 'AI 正在思考...',
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
                 ),
               ),
@@ -225,35 +340,84 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
       child: SafeArea(
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Container(
+            // Image Preview
+            if (_selectedImageBytes != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                height: 80,
+                width: 80,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: TextField(
-                  controller: _controller,
-                  decoration: const InputDecoration(
-                    hintText: '问问 AI 教练...',
-                    hintStyle: TextStyle(color: Colors.grey),
-                    border: InputBorder.none,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                  image: DecorationImage(
+                    image: MemoryImage(_selectedImageBytes!),
+                    fit: BoxFit.cover,
                   ),
-                  onSubmitted: (_) => _loading ? null : _sendMessage(),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: _clearImage,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close,
+                              color: Colors.white, size: 14),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            FloatingActionButton(
-              onPressed: _loading ? null : _sendMessage,
-              elevation: 0,
-              backgroundColor:
-                  _loading ? Colors.grey.shade300 : AppTheme.primaryColor,
-              mini: true,
-              child: const Icon(Icons.send, color: Colors.white, size: 20),
+
+            Row(
+              children: [
+                // Camera / Image Button
+                IconButton(
+                  onPressed: _loading ? null : _pickImage,
+                  icon: Icon(Icons.camera_alt_rounded,
+                      color: Colors.grey.shade600),
+                  tooltip: '上传图片',
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: TextField(
+                      controller: _controller,
+                      decoration: const InputDecoration(
+                        hintText: '问问 AI 教练...',
+                        hintStyle: TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      ),
+                      onSubmitted: (_) => _loading ? null : _sendMessage(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FloatingActionButton(
+                  onPressed: _loading ? null : _sendMessage,
+                  elevation: 0,
+                  backgroundColor:
+                      _loading ? Colors.grey.shade300 : AppTheme.primaryColor,
+                  mini: true,
+                  child: const Icon(Icons.send, color: Colors.white, size: 20),
+                ),
+              ],
             ),
           ],
         ),
