@@ -566,6 +566,12 @@
       "languageVersion": "3.8"
     },
     {
+      "name": "uuid",
+      "rootUri": "file:///C:/Users/iui777/AppData/Local/Pub/Cache/hosted/pub.dev/uuid-4.5.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
       "name": "vector_math",
       "rootUri": "file:///C:/Users/iui777/AppData/Local/Pub/Cache/hosted/pub.dev/vector_math-2.2.0",
       "packageUri": "lib/",
