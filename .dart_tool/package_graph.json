@@ -11,6 +11,7 @@
         "file_picker",
         "fl_chart",
         "flutter",
+        "flutter_markdown",
         "http",
         "intl",
         "shared_preferences",
@@ -46,6 +47,16 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "flutter_markdown",
+      "version": "0.7.7+1",
+      "dependencies": [
+        "flutter",
+        "markdown",
+        "meta",
+        "path"
       ]
     },
     {
@@ -256,6 +267,14 @@
         "stream_channel",
         "string_scanner",
         "term_glyph"
+      ]
+    },
+    {
+      "name": "markdown",
+      "version": "7.3.0",
+      "dependencies": [
+        "args",
+        "meta"
       ]
     },
     {
@@ -608,6 +627,11 @@
       ]
     },
     {
+      "name": "args",
+      "version": "2.7.0",
+      "dependencies": []
+    },
+    {
       "name": "path_provider_windows",
       "version": "2.3.0",
       "dependencies": [
@@ -653,11 +677,6 @@
         "meta",
         "petitparser"
       ]
-    },
-    {
-      "name": "args",
-      "version": "2.7.0",
-      "dependencies": []
     },
     {
       "name": "path_provider_foundation",

@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data'; // For Uint8List
 import 'package:universal_html/html.dart' as html;
 import 'package:universal_html/js_util.dart' as js_util;
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -19,10 +20,9 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  // ... (Previous existing state variables)
   final _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<Map<String, String>> _messages = [
+  List<Map<String, String>> _messages = [
     {
       'role': 'assistant',
       'content': '你好！我是你的 AI 健身教练。我可以帮你制定计划、解答健身疑问，或者估算食物热量。请问今天想练什么？'
@@ -30,12 +30,12 @@ class _ChatPageState extends State<ChatPage> {
   ];
   bool _loading = false;
 
-  // Image Upload State (From previous turn)
+  // Image Upload State
   Uint8List? _selectedImageBytes;
   String? _selectedFileName;
   bool _isAnalyzingImage = false;
 
-  // AI Service Config (Loaded from Settings)
+  // AI Service Config
   String? _apiKey;
   String? _baseUrl;
   String? _systemPrompt;
@@ -43,7 +43,12 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    _loadAiConfig();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    await _loadAiConfig();
+    await _loadMessages();
   }
 
   Future<void> _loadAiConfig() async {
@@ -53,6 +58,24 @@ class _ChatPageState extends State<ChatPage> {
       _baseUrl = prefs.getString('ai_base_url');
       _systemPrompt = prefs.getString('ai_system_prompt');
     });
+  }
+
+  Future<void> _loadMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList('chat_history');
+    if (saved != null) {
+      setState(() {
+        _messages =
+            saved.map((e) => Map<String, String>.from(jsonDecode(e))).toList();
+      });
+      _scrollToBottom();
+    }
+  }
+
+  Future<void> _saveMessages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = _messages.map((e) => jsonEncode(e)).toList();
+    await prefs.setStringList('chat_history', list);
   }
 
   void _scrollToBottom() {
@@ -126,9 +149,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // NEW: Direct API Call logic
   Future<String> _callAiApi(String userContent) async {
-    // Refresh config just in case
     await _loadAiConfig();
 
     if (_apiKey == null || _apiKey!.isEmpty) {
@@ -136,12 +157,11 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     final url = _baseUrl ?? 'https://api.deepseek.com/v1';
-    final systemPrompt = _systemPrompt ?? 'You are a helpful fitness coach.';
+    final systemPrompt = _systemPrompt ??
+        'You are a helpful fitness coach. Please formatting your response with Markdown.';
 
-    // Construct messages history for context
     final List<Map<String, dynamic>> apiMessages = [
       {'role': 'system', 'content': systemPrompt},
-      // Add last 5 messages for context context
       ..._messages
           .take(10)
           .map((m) => {'role': m['role'], 'content': m['content']}),
@@ -152,9 +172,7 @@ class _ChatPageState extends State<ChatPage> {
     // CORS PROXY LOGIC FOR WEB
     if (kIsWeb) {
       if (url.contains('api.deepseek.com')) {
-        // Use Vercel Rewrite Proxy
-        // Map https://api.deepseek.com/v1 -> /api/deepseek/v1
-        final path = Uri.parse(url).path; // e.g. /v1
+        final path = Uri.parse(url).path;
         apiUrl = Uri.parse('/api/deepseek$path/chat/completions');
       } else if (url.contains('api.openai.com')) {
         final path = Uri.parse(url).path;
@@ -170,7 +188,7 @@ class _ChatPageState extends State<ChatPage> {
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'deepseek-chat', // Or deepseek-reasoner
+          'model': 'deepseek-chat',
           'messages': apiMessages,
           'temperature': 0.7,
         }),
@@ -201,19 +219,22 @@ class _ChatPageState extends State<ChatPage> {
         _messages.add({'role': 'user', 'content': text});
       }
     });
+    _saveMessages(); // Save user message
 
     _controller.clear();
     _scrollToBottom();
 
-    // Image analysis logic
     if (_selectedImageBytes != null) {
       try {
         final analysisReport = await _analyzeImageLocally(_selectedImageBytes!);
         if (analysisReport != null) {
           userContent += "\n\n$analysisReport";
           if (mounted) {
-            _messages.add(
-                {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
+            setState(() {
+              _messages.add(
+                  {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
+            });
+            _saveMessages();
             _scrollToBottom();
           }
         }
@@ -223,26 +244,23 @@ class _ChatPageState extends State<ChatPage> {
       _clearImage();
     }
 
-    // Determine whether to use Real API or Fallback
     try {
-      await _loadAiConfig(); // Ensure we have latest settings
+      await _loadAiConfig();
 
       if (_apiKey != null && _apiKey!.isNotEmpty) {
-        // USE REAL API
         final reply = await _callAiApi(userContent);
         if (mounted) {
           setState(() {
             _messages.add({'role': 'assistant', 'content': reply});
           });
+          _saveMessages(); // Save AI reply
         }
       } else {
-        // USE MOCK / SUPABASE FALLBACK
         await Future.delayed(const Duration(seconds: 1));
         final mockReply = _getMockReply(userContent);
         if (mounted) {
           setState(() {
             _messages.add({'role': 'assistant', 'content': mockReply});
-            // Add a tip about setting up real AI
             if (_messages.length < 5) {
               _messages.add({
                 'role': 'system',
@@ -250,6 +268,7 @@ class _ChatPageState extends State<ChatPage> {
               });
             }
           });
+          _saveMessages();
         }
       }
     } catch (e) {
@@ -257,6 +276,7 @@ class _ChatPageState extends State<ChatPage> {
         setState(() {
           _messages.add({'role': 'assistant', 'content': '⚠️ $e'});
         });
+        _saveMessages();
       }
     } finally {
       if (mounted) {
@@ -300,6 +320,23 @@ class _ChatPageState extends State<ChatPage> {
         centerTitle: true,
         elevation: 1,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '清空对话',
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('chat_history');
+              setState(() {
+                _messages = [
+                  {
+                    'role': 'assistant',
+                    'content':
+                        '你好！我是你的 AI 健身教练。我可以帮你制定计划、解答健身疑问，或者估算食物热量。请问今天想练什么？'
+                  }
+                ];
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -367,7 +404,7 @@ class _ChatPageState extends State<ChatPage> {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
-        constraints: const BoxConstraints(maxWidth: 300),
+        constraints: const BoxConstraints(maxWidth: 320), // 稍微调宽一点
         decoration: BoxDecoration(
           color: isUser ? AppTheme.primaryColor : Colors.white,
           borderRadius: BorderRadius.only(
@@ -386,12 +423,28 @@ class _ChatPageState extends State<ChatPage> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Text(
-            content,
-            style: TextStyle(
-              color: isUser ? Colors.white : const Color(0xFF334155),
-              fontSize: 15,
-              height: 1.4,
+          child: MarkdownBody(
+            data: content,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet(
+              p: TextStyle(
+                color: isUser ? Colors.white : const Color(0xFF334155),
+                fontSize: 15,
+                height: 1.5,
+              ),
+              strong: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
+              code: TextStyle(
+                backgroundColor: isUser ? Colors.black26 : Colors.grey.shade100,
+                color: isUser ? Colors.white : Colors.red,
+                fontFamily: 'monospace',
+              ),
+              codeblockDecoration: BoxDecoration(
+                color: isUser ? Colors.black26 : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ),
@@ -467,6 +520,8 @@ class _ChatPageState extends State<ChatPage> {
                     ),
                     child: TextField(
                       controller: _controller,
+                      minLines: 1,
+                      maxLines: 4, // Allow multiline input
                       decoration: const InputDecoration(
                         hintText: '问问 AI 教练...',
                         hintStyle: TextStyle(color: Colors.grey),
@@ -474,7 +529,9 @@ class _ChatPageState extends State<ChatPage> {
                         contentPadding:
                             EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                       ),
-                      onSubmitted: (_) => _loading ? null : _sendMessage(),
+                      // onSubmitted handles only single line usually, but for chat apps often good to keep.
+                      // But with maxLines > 1, Enter usually means new line.
+                      // Let's keep it simple: Text Field grows, send button is primary trigger.
                     ),
                   ),
                 ),
