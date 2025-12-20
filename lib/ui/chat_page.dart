@@ -11,6 +11,8 @@ import 'dart:typed_data'; // For Uint8List
 import 'package:universal_html/html.dart' as html;
 import 'package:universal_html/js_util.dart' as js_util;
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
+import 'package:markdown/markdown.dart' as md;
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -426,16 +428,46 @@ class _ChatPageState extends State<ChatPage> {
           child: MarkdownBody(
             data: content,
             selectable: true,
+            // 启用 GitHub 风格的 Markdown (支持表格、删除线等)
+            extensionSet: md.ExtensionSet.gitHubFlavored,
             styleSheet: MarkdownStyleSheet(
+              // 普通文本
               p: TextStyle(
                 color: isUser ? Colors.white : const Color(0xFF334155),
                 fontSize: 15,
                 height: 1.5,
               ),
+              // 粗体
               strong: TextStyle(
                 color: isUser ? Colors.white : Colors.black87,
                 fontWeight: FontWeight.bold,
               ),
+              // 斜体
+              em: TextStyle(
+                color: isUser ? Colors.white70 : Colors.black54,
+                fontStyle: FontStyle.italic,
+              ),
+              // 列表项
+              listBullet: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+              ),
+              // 标题
+              h1: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+              h2: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+              h3: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+              // 代码块
               code: TextStyle(
                 backgroundColor: isUser ? Colors.black26 : Colors.grey.shade100,
                 color: isUser ? Colors.white : Colors.red,
@@ -444,6 +476,17 @@ class _ChatPageState extends State<ChatPage> {
               codeblockDecoration: BoxDecoration(
                 color: isUser ? Colors.black26 : Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(8),
+              ),
+              // 表格
+              tableHead: TextStyle(
+                color: isUser ? Colors.white : Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
+              tableBody: TextStyle(
+                color: isUser ? Colors.white : const Color(0xFF334155),
+              ),
+              tableBorder: TableBorder.all(
+                color: isUser ? Colors.white30 : Colors.grey.shade300,
               ),
             ),
           ),
