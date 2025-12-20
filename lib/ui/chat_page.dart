@@ -1,5 +1,6 @@
 import 'package:ai_fitness_coach/ui/settings_page.dart';
 import 'package:ai_fitness_coach/ui/chat_history_drawer.dart';
+import 'package:ai_fitness_coach/ui/knowledge_base_page.dart'; // Import Knowledge Base
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +42,10 @@ class _ChatPageState extends State<ChatPage> {
   List<ChatSession> _sessions = [];
   String _currentSessionId = '';
   // --------------------------
+
+  // --- Knowledge Base (RAG Lite) ---
+  List<KnowledgeEntry> _knowledgeEntries = [];
+  // ---------------------------------
 
   List<Map<String, String>> _messages = [];
   bool _loading = false;
@@ -141,11 +146,21 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _initializeData() async {
     await _loadAiConfig();
     await _loadSessions();
+    await _loadKnowledge(); // Load Knowledge
     if (_sessions.isEmpty) {
       _createNewSession();
     } else {
       _selectSession(_sessions.first.id);
     }
+  }
+
+  Future<void> _loadKnowledge() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList('knowledge_base') ?? [];
+    setState(() {
+      _knowledgeEntries =
+          list.map((e) => KnowledgeEntry.fromJson(jsonDecode(e))).toList();
+    });
   }
 
   // --- Session Logic ---
@@ -343,17 +358,57 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _callAiApiStream(String userContent) async {
     await _loadAiConfig();
+    await _loadKnowledge(); // Reload knowledge to be fresh
 
     if (_apiKey == null || _apiKey!.isEmpty) {
       throw '请先在右上角的设置中配置 API Key (如 DeepSeek)。';
     }
 
     final url = _baseUrl ?? 'https://api.deepseek.com/v1';
-    final systemPrompt = _systemPrompt ??
+    final baseSystemPrompt = _systemPrompt ??
         'You are a helpful fitness coach. Please formatting your response with Markdown.';
 
+    // --- RAG Lite Logic ---
+    String ragContext = '';
+    List<String> usedTitles = [];
+
+    for (var entry in _knowledgeEntries) {
+      if (!entry.isActive) continue;
+      bool match = false;
+      // Match title
+      if (userContent.contains(entry.title)) match = true;
+      // Match keywords
+      for (var kw in entry.keywords) {
+        if (userContent.contains(kw)) {
+          match = true;
+          break;
+        }
+      }
+
+      if (match) {
+        ragContext += '\n\n【相关知识库: ${entry.title}】\n${entry.content}';
+        usedTitles.add(entry.title);
+      }
+    }
+
+    final finalSystemPrompt = ragContext.isEmpty
+        ? baseSystemPrompt
+        : '$baseSystemPrompt\n\n请优先参考以下私有知识库内容回答：$ragContext';
+
+    // Notify UI if knowledge is used
+    if (usedTitles.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('📚 已引用知识库: ${usedTitles.join(", ")}'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.blue.shade800,
+        ),
+      );
+    }
+    // ---------------------
+
     final List<Map<String, dynamic>> apiMessages = [
-      {'role': 'system', 'content': systemPrompt},
+      {'role': 'system', 'content': finalSystemPrompt},
       ..._messages
           .take(10)
           .map((m) => {'role': m['role'], 'content': m['content']}),

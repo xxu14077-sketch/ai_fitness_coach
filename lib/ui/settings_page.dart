@@ -1,3 +1,4 @@
+import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_fitness_coach/ui/theme.dart';
@@ -36,8 +37,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _apiKeyController.text = prefs.getString('ai_api_key') ?? '';
-      _baseUrlController.text = prefs.getString('ai_base_url') ?? defaultBaseUrl;
-      _systemPromptController.text = prefs.getString('ai_system_prompt') ?? defaultSystemPrompt;
+      _baseUrlController.text =
+          prefs.getString('ai_base_url') ?? defaultBaseUrl;
+      _systemPromptController.text =
+          prefs.getString('ai_system_prompt') ?? defaultSystemPrompt;
       _isLoading = false;
     });
   }
@@ -46,8 +49,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('ai_api_key', _apiKeyController.text.trim());
     await prefs.setString('ai_base_url', _baseUrlController.text.trim());
-    await prefs.setString('ai_system_prompt', _systemPromptController.text.trim());
-    
+    await prefs.setString(
+        'ai_system_prompt', _systemPromptController.text.trim());
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('设置已保存！AI 教练的大脑已更新。')),
@@ -73,7 +77,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     style: TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   TextField(
                     controller: _apiKeyController,
                     obscureText: true,
@@ -85,7 +89,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   TextField(
                     controller: _baseUrlController,
                     decoration: const InputDecoration(
@@ -97,21 +101,41 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
 
                   const SizedBox(height: 32),
-                  _buildSectionHeader('📚 知识库与人设 (System Prompt)', Icons.menu_book),
+                  _buildSectionHeader('📚 知识库与人设', Icons.menu_book),
                   const SizedBox(height: 16),
-                  const Text(
-                    '这就是您“喂”给 AI 的知识。您可以在这里定义它的性格、专业领域，甚至粘贴特定的训练法（如 5x5 力量训练法）。',
-                    style: TextStyle(color: Colors.grey),
+
+                  // New Knowledge Base Entry
+                  Card(
+                    color: Colors.blue.shade50,
+                    child: ListTile(
+                      leading:
+                          const Icon(Icons.library_books, color: Colors.blue),
+                      title: const Text(
+                        '私有知识库 (RAG Lite)',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: const Text('添加专属的训练文档、饮食规则，让 AI 更懂你。'),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const KnowledgeBasePage()),
+                        );
+                      },
+                    ),
                   ),
+
                   const SizedBox(height: 16),
-                  
+
                   TextField(
                     controller: _systemPromptController,
-                    maxLines: 8,
+                    maxLines: 6,
                     decoration: const InputDecoration(
-                      labelText: '系统提示词 (System Prompt)',
+                      labelText: '基础人设 (System Prompt)',
                       border: OutlineInputBorder(),
                       alignLabelWithHint: true,
+                      helperText: '这是 AI 的基础性格设定。特定知识请建议使用上方的“私有知识库”管理。',
                     ),
                   ),
 
@@ -125,7 +149,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         backgroundColor: AppTheme.primaryColor,
                         foregroundColor: Colors.white,
                       ),
-                      child: const Text('保存并应用', style: TextStyle(fontSize: 16)),
+                      child:
+                          const Text('保存并应用', style: TextStyle(fontSize: 16)),
                     ),
                   ),
                 ],
