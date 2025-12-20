@@ -151,7 +151,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<String> _callAiApi(String userContent) async {
+  Future<void> _callAiApiStream(String userContent) async {
     await _loadAiConfig();
 
     if (_apiKey == null || _apiKey!.isEmpty) {
@@ -182,26 +182,59 @@ class _ChatPageState extends State<ChatPage> {
       }
     }
 
-    try {
-      final response = await http.post(
-        apiUrl,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': 'deepseek-chat',
-          'messages': apiMessages,
-          'temperature': 0.7,
-        }),
-      );
+    final request = http.Request('POST', apiUrl);
+    request.headers.addAll({
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $_apiKey',
+    });
+    request.body = jsonEncode({
+      'model': 'deepseek-chat',
+      'messages': apiMessages,
+      'temperature': 0.7,
+      'stream': true, // Enable streaming
+    });
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return data['choices'][0]['message']['content'];
-      } else {
-        throw 'API Error: ${response.statusCode} - ${response.body}';
+    try {
+      final streamedResponse = await request.send();
+
+      if (streamedResponse.statusCode != 200) {
+        throw 'API Error: ${streamedResponse.statusCode}';
       }
+
+      // Add a placeholder message for the assistant
+      setState(() {
+        _messages.add({'role': 'assistant', 'content': ''});
+      });
+
+      String fullContent = '';
+
+      await streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        if (line.startsWith('data: ')) {
+          final data = line.substring(6).trim();
+          if (data == '[DONE]') return;
+
+          try {
+            final json = jsonDecode(data);
+            final content = json['choices'][0]['delta']['content'] ?? '';
+            fullContent += content;
+
+            // Update UI incrementally
+            if (mounted) {
+              setState(() {
+                _messages.last['content'] = fullContent;
+              });
+              _scrollToBottom();
+            }
+          } catch (e) {
+            // Ignore parse errors for partial chunks
+          }
+        }
+      }).asFuture();
+
+      _saveMessages(); // Save final result
     } catch (e) {
       throw '连接 AI 失败: $e';
     }
@@ -250,13 +283,7 @@ class _ChatPageState extends State<ChatPage> {
       await _loadAiConfig();
 
       if (_apiKey != null && _apiKey!.isNotEmpty) {
-        final reply = await _callAiApi(userContent);
-        if (mounted) {
-          setState(() {
-            _messages.add({'role': 'assistant', 'content': reply});
-          });
-          _saveMessages(); // Save AI reply
-        }
+        await _callAiApiStream(userContent);
       } else {
         await Future.delayed(const Duration(seconds: 1));
         final mockReply = _getMockReply(userContent);
