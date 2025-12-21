@@ -1,20 +1,106 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
 
-class ActivityHeatmap extends StatelessWidget {
+class ActivityHeatmap extends StatefulWidget {
   const ActivityHeatmap({super.key});
 
   @override
+  State<ActivityHeatmap> createState() => _ActivityHeatmapState();
+}
+
+class _ActivityHeatmapState extends State<ActivityHeatmap> {
+  List<int> _activityLevels = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    try {
+      final uid = Supabase.instance.client.auth.currentUser?.id;
+      if (uid == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+
+      // 84 days = 12 weeks
+      final now = DateTime.now();
+      final startDate = now.subtract(const Duration(days: 83));
+
+      final res = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('created_at, completion_pct')
+          .eq('user_id', uid)
+          .gte('created_at', startDate.toIso8601String());
+
+      final List<dynamic> records = res as List;
+
+      // Map date string (YYYY-MM-DD) to max completion pct
+      final Map<String, int> dailyMax = {};
+
+      for (var r in records) {
+        final dateStr = (r['created_at'] as String).substring(0, 10);
+        final pct = (r['completion_pct'] as int?) ?? 0;
+        if (!dailyMax.containsKey(dateStr) || pct > dailyMax[dateStr]!) {
+          dailyMax[dateStr] = pct;
+        }
+      }
+
+      // Generate last 84 days levels
+      final List<int> levels = [];
+      for (int i = 0; i < 84; i++) {
+        final d = startDate.add(Duration(days: i));
+        final key = d.toIso8601String().substring(0, 10);
+
+        if (dailyMax.containsKey(key)) {
+          final pct = dailyMax[key]!;
+          if (pct > 80) {
+            levels.add(3);
+          } else if (pct > 50) {
+            levels.add(2);
+          } else {
+            levels.add(1);
+          }
+        } else {
+          levels.add(0);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _activityLevels = levels;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Heatmap error: $e");
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Mock activity data: 0 = none, 1 = light, 2 = medium, 3 = heavy
-    // Last 12 weeks (approx 84 days)
-    final List<int> activityLevels = List.generate(84, (index) {
-      // Simulate some random activity
-      if (index % 7 == 0) return 3; // Mondays are heavy
-      if (index % 3 == 0) return 2; // Every 3 days medium
-      if (index % 5 == 0) return 0; // Rest days
-      return 1; // Light days
-    });
+    if (_loading)
+      return const SizedBox(
+          height: 100, child: Center(child: CircularProgressIndicator()));
+    if (_activityLevels.isEmpty) return const SizedBox();
+
+    // Calculate streak (simple version: count backwards from today until 0)
+    int streak = 0;
+    for (int i = _activityLevels.length - 1; i >= 0; i--) {
+      if (_activityLevels[i] > 0) {
+        streak++;
+      } else {
+        // Allow 1 day gap? No, strict streak for now.
+        // If today is empty, check yesterday.
+        if (i == _activityLevels.length - 1) continue;
+        break;
+      }
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -38,7 +124,7 @@ class ActivityHeatmap extends StatelessWidget {
                 ),
               ),
               Text(
-                '连续 5 天',
+                '连续 $streak 天',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -59,9 +145,9 @@ class ActivityHeatmap extends StatelessWidget {
                 crossAxisSpacing: 4,
                 childAspectRatio: 1.0,
               ),
-              itemCount: activityLevels.length,
+              itemCount: _activityLevels.length,
               itemBuilder: (context, index) {
-                final level = activityLevels[index];
+                final level = _activityLevels[index];
                 return Container(
                   decoration: BoxDecoration(
                     color: _getColorForLevel(level),
@@ -75,7 +161,8 @@ class ActivityHeatmap extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              const Text('Less ', style: TextStyle(fontSize: 10, color: Colors.grey)),
+              const Text('Less ',
+                  style: TextStyle(fontSize: 10, color: Colors.grey)),
               _buildLegendBox(0),
               const SizedBox(width: 2),
               _buildLegendBox(1),
@@ -83,7 +170,8 @@ class ActivityHeatmap extends StatelessWidget {
               _buildLegendBox(2),
               const SizedBox(width: 2),
               _buildLegendBox(3),
-              const Text(' More', style: TextStyle(fontSize: 10, color: Colors.grey)),
+              const Text(' More',
+                  style: TextStyle(fontSize: 10, color: Colors.grey)),
             ],
           ),
         ],

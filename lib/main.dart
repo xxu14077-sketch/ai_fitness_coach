@@ -212,8 +212,76 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  Future<void> _showRecordWeightDialog() async {
+    final weightCtrl = TextEditingController();
+    final fatCtrl = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('记录今日数据'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: weightCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '体重 (kg)',
+                suffixText: 'kg',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: fatCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '体脂率 (%)',
+                suffixText: '%',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final w = double.tryParse(weightCtrl.text);
+              final f = double.tryParse(fatCtrl.text);
+              if (w != null) {
+                final uid = Supabase.instance.client.auth.currentUser?.id;
+                if (uid != null) {
+                  await Supabase.instance.client.from('body_metrics').insert({
+                    'user_id': uid,
+                    'weight_kg': w,
+                    'body_fat_pct': f,
+                    'date': DateTime.now().toIso8601String().substring(0, 10),
+                  });
+                }
+              }
+              if (mounted) Navigator.pop(context);
+              // Trigger refresh? The chart has a refresh button.
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('记录已保存，请刷新图表')));
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -234,6 +302,12 @@ class HomePage extends StatelessWidget {
         ],
       ),
       body: const _HomeBody(),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showRecordWeightDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('记录体重'),
+        backgroundColor: AppTheme.primaryColor,
+      ),
     );
   }
 }
