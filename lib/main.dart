@@ -220,143 +220,197 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  Future<void> _showRecordStrengthDialog() async {
+  Future<void> _showRecordDialog() async {
+    // Controllers for Body Weight
+    final weightCtrl = TextEditingController();
+    final fatCtrl = TextEditingController();
+
+    // Controllers for Strength
     final benchCtrl = TextEditingController();
     final squatCtrl = TextEditingController();
     final deadliftCtrl = TextEditingController();
+
     bool saving = false;
 
     await showDialog(
       context: context,
       builder: (dialogContext) =>
           StatefulBuilder(builder: (context, setDialogState) {
-        return AlertDialog(
-          title: const Text('记录三大项成绩 (PR/Max)'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: benchCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '卧推 (Bench Press)',
-                  suffixText: 'kg',
-                  prefixIcon: Icon(Icons.fitness_center, size: 18),
-                ),
+        return DefaultTabController(
+          length: 2,
+          child: AlertDialog(
+            title: const TabBar(
+              labelColor: AppTheme.primaryColor,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: AppTheme.primaryColor,
+              tabs: [
+                Tab(text: '体重 & 体脂'),
+                Tab(text: '三大项成绩'),
+              ],
+            ),
+            content: SizedBox(
+              height: 200,
+              width: 300,
+              child: TabBarView(
+                children: [
+                  // Tab 1: Body Metrics
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: weightCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: '体重 (kg)',
+                          suffixText: 'kg',
+                          prefixIcon:
+                              Icon(Icons.monitor_weight_outlined, size: 18),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: fatCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: '体脂率 (%)',
+                          suffixText: '%',
+                          prefixIcon: Icon(Icons.pie_chart_outline, size: 18),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Tab 2: Strength
+                  SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: benchCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '卧推 (Bench)',
+                            suffixText: 'kg',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: squatCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '深蹲 (Squat)',
+                            suffixText: 'kg',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: deadliftCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: '硬拉 (Deadlift)',
+                            suffixText: 'kg',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: squatCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '深蹲 (Squat)',
-                  suffixText: 'kg',
-                  prefixIcon: Icon(Icons.accessibility_new, size: 18),
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(context),
+                child: const Text('取消'),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: deadliftCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: '硬拉 (Deadlift)',
-                  suffixText: 'kg',
-                  prefixIcon: Icon(Icons.vertical_align_bottom, size: 18),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '提示：只需填写今日有新成绩的项目，留空则不记录。',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        try {
+                          final uid =
+                              Supabase.instance.client.auth.currentUser?.id;
+                          if (uid != null) {
+                            final today = DateTime.now()
+                                .toIso8601String()
+                                .substring(0, 10);
+
+                            // 1. Save Body Metrics if entered
+                            final w = double.tryParse(weightCtrl.text);
+                            final f = double.tryParse(fatCtrl.text);
+                            if (w != null) {
+                              await Supabase.instance.client
+                                  .from('body_metrics')
+                                  .upsert({
+                                'user_id': uid,
+                                'weight_kg': w,
+                                'body_fat_pct': f, // nullable
+                                'date': today,
+                              }, onConflict: 'user_id, date');
+                            }
+
+                            // 2. Save Strength if entered
+                            final bench = double.tryParse(benchCtrl.text);
+                            final squat = double.tryParse(squatCtrl.text);
+                            final deadlift = double.tryParse(deadliftCtrl.text);
+                            final List<Map<String, dynamic>> strengthRecords =
+                                [];
+
+                            if (bench != null)
+                              strengthRecords.add({
+                                'user_id': uid,
+                                'date': today,
+                                'exercise': 'bench',
+                                'weight_kg': bench
+                              });
+                            if (squat != null)
+                              strengthRecords.add({
+                                'user_id': uid,
+                                'date': today,
+                                'exercise': 'squat',
+                                'weight_kg': squat
+                              });
+                            if (deadlift != null)
+                              strengthRecords.add({
+                                'user_id': uid,
+                                'date': today,
+                                'exercise': 'deadlift',
+                                'weight_kg': deadlift
+                              });
+
+                            if (strengthRecords.isNotEmpty) {
+                              await Supabase.instance.client
+                                  .from('strength_progress')
+                                  .upsert(strengthRecords);
+                            }
+                          }
+
+                          if (mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('数据已保存')));
+                            setState(() {}); // Refresh charts
+                          }
+                        } catch (e) {
+                          debugPrint('Error saving data: $e');
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('保存失败: $e')));
+                        } finally {
+                          if (mounted && dialogContext.mounted)
+                            setDialogState(() => saving = false);
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text('保存'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: saving ? null : () => Navigator.pop(context),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: saving
-                  ? null
-                  : () async {
-                      final bench = double.tryParse(benchCtrl.text);
-                      final squat = double.tryParse(squatCtrl.text);
-                      final deadlift = double.tryParse(deadliftCtrl.text);
-
-                      if (bench == null && squat == null && deadlift == null)
-                        return;
-
-                      setDialogState(() => saving = true);
-
-                      try {
-                        final uid =
-                            Supabase.instance.client.auth.currentUser?.id;
-                        if (uid != null) {
-                          final today =
-                              DateTime.now().toIso8601String().substring(0, 10);
-                          final List<Map<String, dynamic>> records = [];
-
-                          if (bench != null) {
-                            records.add({
-                              'user_id': uid,
-                              'date': today,
-                              'exercise': 'bench',
-                              'weight_kg': bench
-                            });
-                          }
-                          if (squat != null) {
-                            records.add({
-                              'user_id': uid,
-                              'date': today,
-                              'exercise': 'squat',
-                              'weight_kg': squat
-                            });
-                          }
-                          if (deadlift != null) {
-                            records.add({
-                              'user_id': uid,
-                              'date': today,
-                              'exercise': 'deadlift',
-                              'weight_kg': deadlift
-                            });
-                          }
-
-                          if (records.isNotEmpty) {
-                            await Supabase.instance.client
-                                .from('strength_progress')
-                                .upsert(records);
-                          }
-                        }
-
-                        if (mounted) {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('成绩已保存')));
-                          setState(() {});
-                        }
-                      } catch (e) {
-                        debugPrint('Error saving strength: $e');
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                              content: Text('保存失败: $e'),
-                              backgroundColor: Colors.red));
-                        }
-                      } finally {
-                        if (mounted && dialogContext.mounted) {
-                          setDialogState(() => saving = false);
-                        }
-                      }
-                    },
-              child: saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Text('保存'),
-            ),
-          ],
         );
       }),
     );
@@ -383,9 +437,9 @@ class _HomePageState extends State<HomePage> {
       ),
       body: const _HomeBody(),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showRecordStrengthDialog,
+        onPressed: _showRecordDialog,
         icon: const Icon(Icons.add),
-        label: const Text('记录成绩'),
+        label: const Text('记录数据'),
         backgroundColor: AppTheme.primaryColor,
       ),
     );
