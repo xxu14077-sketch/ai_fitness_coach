@@ -48,7 +48,7 @@ class _ChatPageState extends State<ChatPage> {
   List<KnowledgeEntry> _knowledgeEntries = [];
   // ---------------------------------
 
-  List<Map<String, String>> _messages = [];
+  List<Map<String, dynamic>> _messages = [];
   bool _loading = false;
 
   // Image Upload State
@@ -250,11 +250,13 @@ class _ChatPageState extends State<ChatPage> {
         lastUpdatedAt: DateTime.parse(now),
       );
 
+      final newUserMsgId = const Uuid().v4();
       setState(() {
         _sessions.insert(0, newSession);
         _currentSessionId = newId;
         _messages = [
           {
+            'id': newUserMsgId,
             'role': 'assistant',
             'content': '你好！我是你的 AI 健身教练。我可以帮你制定计划、解答健身疑问，或者估算食物热量。请问今天想练什么？'
           }
@@ -262,7 +264,8 @@ class _ChatPageState extends State<ChatPage> {
       });
       // Initial welcome message isn't usually saved to DB until user interacts,
       // or we can save it now. Let's save it now to be consistent.
-      await _persistMessage(newId, 'assistant', _messages[0]['content']!);
+      await _persistMessage(
+          newId, 'assistant', _messages[0]['content']!, newUserMsgId);
     } catch (e) {
       debugPrint('Create session error: $e');
     }
@@ -287,8 +290,11 @@ class _ChatPageState extends State<ChatPage> {
       setState(() {
         _messages = (res as List)
             .map((e) => {
+                  'id': e['id'] as String, // Load ID
                   'role': e['role'] as String,
                   'content': e['content'] as String,
+                  'feedback_rating':
+                      e['feedback_rating'] as int? ?? 0, // Load feedback
                 })
             .toList();
         _loading = false;
@@ -354,12 +360,13 @@ class _ChatPageState extends State<ChatPage> {
 
   // New helper to persist single message
   Future<void> _persistMessage(
-      String sessionId, String role, String content) async {
+      String sessionId, String role, String content, String messageId) async {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null) return;
 
     try {
       await Supabase.instance.client.from('chat_messages').insert({
+        'id': messageId,
         'session_id': sessionId,
         'user_id': uid,
         'role': role,
@@ -540,10 +547,12 @@ class _ChatPageState extends State<ChatPage> {
       }
 
       setState(() {
-        _messages.add({'role': 'assistant', 'content': ''});
+        _messages
+            .add({'id': const Uuid().v4(), 'role': 'assistant', 'content': ''});
       });
 
       String fullContent = '';
+      final assistantMsgId = _messages.last['id'] as String;
 
       await streamedResponse.stream
           .transform(utf8.decoder)
@@ -566,9 +575,37 @@ class _ChatPageState extends State<ChatPage> {
         }
       }).asFuture();
 
-      await _persistMessage(_currentSessionId, 'assistant', fullContent);
+      await _persistMessage(
+          _currentSessionId, 'assistant', fullContent, assistantMsgId);
     } catch (e) {
       throw '连接 AI 失败: $e';
+    }
+  }
+
+  Future<void> _updateFeedback(String messageId, int rating) async {
+    // 1. Update local state
+    setState(() {
+      final index = _messages.indexWhere((m) => m['id'] == messageId);
+      if (index != -1) {
+        _messages[index]['feedback_rating'] = rating;
+      }
+    });
+
+    // 2. Update DB
+    try {
+      await Supabase.instance.client.from('chat_messages').update({
+        'feedback_rating': rating,
+      }).eq('id', messageId);
+
+      if (rating != 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(rating == 1 ? '感谢您的好评！👍' : '我们会继续改进！👎'),
+              duration: const Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      debugPrint('Update feedback error: $e');
     }
   }
 
@@ -585,16 +622,23 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _loading = true;
       if (_selectedImageBytes != null) {
-        _messages.add({'role': 'user', 'content': '📷 [图片已上传] $text'});
+        _messages.add({
+          'id': const Uuid().v4(),
+          'role': 'user',
+          'content': '📷 [图片已上传] $text'
+        });
       } else {
-        _messages.add({'role': 'user', 'content': text});
+        _messages
+            .add({'id': const Uuid().v4(), 'role': 'user', 'content': text});
       }
     });
     // _saveMessages(_currentSessionId);
     if (text.isNotEmpty) {
-      await _persistMessage(_currentSessionId, 'user', text);
+      await _persistMessage(
+          _currentSessionId, 'user', text, _messages.last['id'] as String);
     } else if (_selectedImageBytes != null) {
-      await _persistMessage(_currentSessionId, 'user', '📷 [图片已上传] $text');
+      await _persistMessage(_currentSessionId, 'user', '📷 [图片已上传] $text',
+          _messages.last['id'] as String);
     }
 
     _controller.clear();
@@ -606,13 +650,17 @@ class _ChatPageState extends State<ChatPage> {
         if (analysisReport != null) {
           userContent += "\n\n$analysisReport";
           if (mounted) {
+            final assistantMsgId = const Uuid().v4();
             setState(() {
-              _messages.add(
-                  {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
+              _messages.add({
+                'id': assistantMsgId,
+                'role': 'assistant',
+                'content': '✅ 图片分析完成，正在结合视觉数据思考...'
+              });
             });
             // _saveMessages(_currentSessionId);
-            await _persistMessage(
-                _currentSessionId, 'assistant', '✅ 图片分析完成，正在结合视觉数据思考...');
+            await _persistMessage(_currentSessionId, 'assistant',
+                '✅ 图片分析完成，正在结合视觉数据思考...', assistantMsgId);
             _scrollToBottom();
           }
         }
@@ -630,23 +678,34 @@ class _ChatPageState extends State<ChatPage> {
         await Future.delayed(const Duration(seconds: 1));
         final mockReply = _getMockReply(userContent);
         if (mounted) {
+          final assistantMsgId = const Uuid().v4();
           setState(() {
-            _messages.add({'role': 'assistant', 'content': mockReply});
+            _messages.add({
+              'id': assistantMsgId,
+              'role': 'assistant',
+              'content': mockReply
+            });
             if (_messages.length < 5) {
               _messages.add({
+                'id': const Uuid().v4(),
                 'role': 'system',
                 'content': '💡 提示：点击右上角设置图标，配置 DeepSeek API Key 即可体验真正的 AI 智能。'
               });
             }
           });
           // _saveMessages(_currentSessionId);
-          await _persistMessage(_currentSessionId, 'assistant', mockReply);
+          await _persistMessage(
+              _currentSessionId, 'assistant', mockReply, assistantMsgId);
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _messages.add({'role': 'assistant', 'content': '⚠️ $e'});
+          _messages.add({
+            'id': const Uuid().v4(),
+            'role': 'assistant',
+            'content': '⚠️ $e'
+          });
         });
         // _saveMessages(_currentSessionId);
       }
@@ -746,7 +805,11 @@ class _ChatPageState extends State<ChatPage> {
                     );
                   }
                   final isUser = role == 'user';
-                  return _buildMessageBubble(isUser, msg['content']!);
+                  return _buildMessageBubble(
+                      isUser,
+                      msg['content'] as String,
+                      msg['id'] as String?,
+                      msg['feedback_rating'] as int? ?? 0);
                 },
               ),
             ),
@@ -774,7 +837,8 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildMessageBubble(bool isUser, String content) {
+  Widget _buildMessageBubble(bool isUser, String content,
+      [String? messageId, int feedbackRating = 0]) {
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -838,15 +902,53 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
           ),
-          if (!isUser) // Only show speaker for AI messages
+          if (!isUser) // Only show tools for AI messages
             Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: InkWell(
-                onTap: () => _speak(content),
-                child: const Padding(
-                  padding: EdgeInsets.all(4.0),
-                  child: Icon(Icons.volume_up, size: 16, color: Colors.grey),
-                ),
+              padding: const EdgeInsets.only(bottom: 12, left: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () => _speak(content),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4.0),
+                      child:
+                          Icon(Icons.volume_up, size: 16, color: Colors.grey),
+                    ),
+                  ),
+                  if (messageId != null) ...[
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () => _updateFeedback(messageId, 1),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Icon(
+                            feedbackRating == 1
+                                ? Icons.thumb_up
+                                : Icons.thumb_up_outlined,
+                            size: 16,
+                            color: feedbackRating == 1
+                                ? Colors.green
+                                : Colors.grey),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () => _updateFeedback(messageId, -1),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Icon(
+                            feedbackRating == -1
+                                ? Icons.thumb_down
+                                : Icons.thumb_down_outlined,
+                            size: 16,
+                            color: feedbackRating == -1
+                                ? Colors.red
+                                : Colors.grey),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
         ],
