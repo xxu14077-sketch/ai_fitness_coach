@@ -1,4 +1,5 @@
 import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
+import 'package:ai_fitness_coach/ui/profile_page.dart'; // Import Profile
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -150,6 +151,28 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 32),
                   _buildSectionHeader('📚 知识库与人设', Icons.menu_book),
                   const SizedBox(height: 16),
+
+                  // New Profile Entry
+                  Card(
+                    color: Colors.orange.shade50,
+                    child: ListTile(
+                      leading: const Icon(Icons.person, color: Colors.orange),
+                      title: const Text(
+                        '个人档案 (Personal Memory)',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: const Text('设置您的身高、体重、目标，AI 会记住并提供个性化建议。'),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const ProfilePage()),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
 
                   // New Knowledge Base Entry
                   Card(

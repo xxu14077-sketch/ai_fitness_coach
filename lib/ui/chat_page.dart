@@ -1,6 +1,7 @@
 import 'package:ai_fitness_coach/ui/settings_page.dart';
 import 'package:ai_fitness_coach/ui/chat_history_drawer.dart';
-import 'package:ai_fitness_coach/ui/knowledge_base_page.dart'; // Import Knowledge Base
+import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
+import 'package:ai_fitness_coach/core/memory_service.dart'; // Import Memory Service
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -454,6 +455,15 @@ class _ChatPageState extends State<ChatPage> {
     final baseSystemPrompt = _systemPrompt ??
         'You are a helpful fitness coach. Please formatting your response with Markdown.';
 
+    // --- Personalized Memory Logic ---
+    String memoryContext = '';
+    try {
+      memoryContext = await MemoryService.getMemoryContext();
+    } catch (e) {
+      debugPrint('Memory load failed: $e');
+    }
+    // ---------------------------------
+
     // --- RAG Lite Logic ---
     String ragContext = '';
     List<String> usedTitles = [];
@@ -477,9 +487,9 @@ class _ChatPageState extends State<ChatPage> {
       }
     }
 
-    final finalSystemPrompt = ragContext.isEmpty
-        ? baseSystemPrompt
-        : '$baseSystemPrompt\n\n请优先参考以下私有知识库内容回答：$ragContext';
+    final finalSystemPrompt = '$baseSystemPrompt\n'
+        '$memoryContext\n' // Inject Memory
+        '${ragContext.isEmpty ? '' : '\n请优先参考以下私有知识库内容回答：$ragContext'}';
 
     // Notify UI if knowledge is used
     if (usedTitles.isNotEmpty && mounted) {
