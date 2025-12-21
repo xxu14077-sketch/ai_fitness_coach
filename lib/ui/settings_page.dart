@@ -1,6 +1,7 @@
 import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ai_fitness_coach/ui/theme.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -35,6 +36,32 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    // Try to load from Supabase first
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid != null) {
+      try {
+        final res = await Supabase.instance.client
+            .from('user_settings')
+            .select()
+            .eq('user_id', uid)
+            .maybeSingle();
+
+        if (res != null) {
+          setState(() {
+            _apiKeyController.text = res['ai_api_key'] ?? '';
+            _baseUrlController.text = res['ai_base_url'] ?? defaultBaseUrl;
+            _systemPromptController.text =
+                res['ai_system_prompt'] ?? defaultSystemPrompt;
+            _isLoading = false;
+          });
+          return;
+        }
+      } catch (e) {
+        debugPrint('Load cloud settings error: $e');
+      }
+    }
+
+    // Fallback to local
     setState(() {
       _apiKeyController.text = prefs.getString('ai_api_key') ?? '';
       _baseUrlController.text =
@@ -47,14 +74,34 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('ai_api_key', _apiKeyController.text.trim());
-    await prefs.setString('ai_base_url', _baseUrlController.text.trim());
-    await prefs.setString(
-        'ai_system_prompt', _systemPromptController.text.trim());
+    final apiKey = _apiKeyController.text.trim();
+    final baseUrl = _baseUrlController.text.trim();
+    final systemPrompt = _systemPromptController.text.trim();
+
+    // Save local
+    await prefs.setString('ai_api_key', apiKey);
+    await prefs.setString('ai_base_url', baseUrl);
+    await prefs.setString('ai_system_prompt', systemPrompt);
+
+    // Save cloud
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid != null) {
+      try {
+        await Supabase.instance.client.from('user_settings').upsert({
+          'user_id': uid,
+          'ai_api_key': apiKey,
+          'ai_base_url': baseUrl,
+          'ai_system_prompt': systemPrompt,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Save cloud settings error: $e');
+      }
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('设置已保存！AI 教练的大脑已更新。')),
+        const SnackBar(content: Text('设置已保存！AI 教练的大脑已更新 (本地+云端)。')),
       );
     }
   }

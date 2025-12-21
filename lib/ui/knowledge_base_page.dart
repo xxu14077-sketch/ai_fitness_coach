@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:ai_fitness_coach/ui/theme.dart';
 import 'package:uuid/uuid.dart';
 
@@ -24,7 +24,7 @@ class KnowledgeEntry {
         'title': title,
         'content': content,
         'keywords': keywords,
-        'isActive': isActive,
+        'is_active': isActive,
       };
 
   factory KnowledgeEntry.fromJson(Map<String, dynamic> json) => KnowledgeEntry(
@@ -32,7 +32,7 @@ class KnowledgeEntry {
         title: json['title'],
         content: json['content'],
         keywords: List<String>.from(json['keywords'] ?? []),
-        isActive: json['isActive'] ?? true,
+        isActive: json['is_active'] ?? true,
       );
 }
 
@@ -54,24 +54,72 @@ class _KnowledgeBasePageState extends State<KnowledgeBasePage> {
   }
 
   Future<void> _loadEntries() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList('knowledge_base') ?? [];
-    setState(() {
-      _entries = list.map((e) => KnowledgeEntry.fromJson(jsonDecode(e))).toList();
-      _loading = false;
-    });
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    try {
+      final res = await Supabase.instance.client
+          .from('knowledge_base')
+          .select()
+          .eq('user_id', uid)
+          .order('created_at', ascending: false);
+
+      setState(() {
+        _entries =
+            (res as List).map((e) => KnowledgeEntry.fromJson(e)).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('Load knowledge error: $e');
+      setState(() => _loading = false);
+    }
   }
 
-  Future<void> _saveEntries() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = _entries.map((e) => jsonEncode(e.toJson())).toList();
-    await prefs.setStringList('knowledge_base', list);
+  Future<void> _addOrUpdateEntry(KnowledgeEntry entry, bool isNew) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await Supabase.instance.client.from('knowledge_base').upsert({
+        'id': entry.id,
+        'user_id': uid,
+        'title': entry.title,
+        'content': entry.content,
+        'keywords': entry.keywords,
+        'is_active': entry.isActive,
+      });
+      await _loadEntries();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存失败: $e')),
+      );
+    }
   }
 
-  void _addOrEditEntry([KnowledgeEntry? entry]) {
+  Future<void> _deleteEntry(String id) async {
+    try {
+      await Supabase.instance.client
+          .from('knowledge_base')
+          .delete()
+          .eq('id', id);
+      setState(() {
+        _entries.removeWhere((e) => e.id == id);
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除失败: $e')),
+      );
+    }
+  }
+
+  void _showEntryDialog([KnowledgeEntry? entry]) {
     final titleCtrl = TextEditingController(text: entry?.title);
     final contentCtrl = TextEditingController(text: entry?.content);
-    final keywordsCtrl = TextEditingController(text: entry?.keywords.join(', '));
+    final keywordsCtrl =
+        TextEditingController(text: entry?.keywords.join(', '));
 
     showDialog(
       context: context,
@@ -125,25 +173,18 @@ class _KnowledgeBasePageState extends State<KnowledgeBasePage> {
                   .map((e) => e.trim())
                   .where((e) => e.isNotEmpty)
                   .toList();
-              
-              // If no keywords, use title as keyword
+
               if (keywords.isEmpty) keywords.add(title);
 
-              setState(() {
-                if (entry != null) {
-                  entry.title = title;
-                  entry.content = content;
-                  entry.keywords = keywords;
-                } else {
-                  _entries.add(KnowledgeEntry(
-                    id: const Uuid().v4(),
-                    title: title,
-                    content: content,
-                    keywords: keywords,
-                  ));
-                }
-              });
-              _saveEntries();
+              final newEntry = KnowledgeEntry(
+                id: entry?.id ?? const Uuid().v4(),
+                title: title,
+                content: content,
+                keywords: keywords,
+                isActive: entry?.isActive ?? true,
+              );
+
+              _addOrUpdateEntry(newEntry, entry == null);
               Navigator.pop(ctx);
             },
             child: const Text('保存'),
@@ -151,13 +192,6 @@ class _KnowledgeBasePageState extends State<KnowledgeBasePage> {
         ],
       ),
     );
-  }
-
-  void _deleteEntry(String id) {
-    setState(() {
-      _entries.removeWhere((e) => e.id == id);
-    });
-    _saveEntries();
   }
 
   @override
@@ -168,7 +202,7 @@ class _KnowledgeBasePageState extends State<KnowledgeBasePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _addOrEditEntry(),
+            onPressed: () => _showEntryDialog(),
           ),
         ],
       ),
@@ -212,10 +246,10 @@ class _KnowledgeBasePageState extends State<KnowledgeBasePage> {
                             setState(() {
                               entry.isActive = val;
                             });
-                            _saveEntries();
+                            _addOrUpdateEntry(entry, false);
                           },
                         ),
-                        onTap: () => _addOrEditEntry(entry),
+                        onTap: () => _showEntryDialog(entry),
                         onLongPress: () => showDialog(
                           context: context,
                           builder: (ctx) => AlertDialog(

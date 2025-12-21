@@ -143,6 +143,35 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<void> _loadAiConfig() async {
+    // Try cloud first, then local
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid != null) {
+      try {
+        final res = await Supabase.instance.client
+            .from('user_settings')
+            .select()
+            .eq('user_id', uid)
+            .maybeSingle();
+        if (res != null) {
+          setState(() {
+            _apiKey = res['ai_api_key'];
+            _baseUrl = res['ai_base_url'];
+            _systemPrompt = res['ai_system_prompt'];
+          });
+          return;
+        }
+      } catch (e) {}
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _apiKey = prefs.getString('ai_api_key');
+      _baseUrl = prefs.getString('ai_base_url');
+      _systemPrompt = prefs.getString('ai_system_prompt');
+    });
+  }
+
   Future<void> _initializeData() async {
     await _loadAiConfig();
     await _loadSessions();
@@ -165,127 +194,184 @@ class _ChatPageState extends State<ChatPage> {
 
   // --- Session Logic ---
   Future<void> _loadSessions() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String>? sessionJsonList =
-        prefs.getStringList('chat_sessions_meta');
-    if (sessionJsonList != null) {
-      setState(() {
-        _sessions = sessionJsonList
-            .map((e) => ChatSession.fromJson(jsonDecode(e)))
-            .toList();
-        _sessions.sort((a, b) => b.lastUpdatedAt.compareTo(a.lastUpdatedAt));
-      });
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      final res = await Supabase.instance.client
+          .from('chat_sessions')
+          .select()
+          .eq('user_id', uid)
+          .order('last_updated_at', ascending: false);
+
+      if (res != null) {
+        setState(() {
+          _sessions = (res as List)
+              .map((e) => ChatSession.fromJson({
+                    'id': e['id'],
+                    'title': e['title'],
+                    'createdAt': e['created_at'],
+                    'lastUpdatedAt': e['last_updated_at'],
+                  }))
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Load sessions error: $e');
     }
   }
 
+  // No longer saving sessions meta to shared prefs, relying on DB
   Future<void> _saveSessionsMeta() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = _sessions.map((e) => jsonEncode(e.toJson())).toList();
-    await prefs.setStringList('chat_sessions_meta', list);
+    // Legacy: Keep empty or remove. DB handles persistence.
   }
 
-  void _createNewSession() {
-    final newId = const Uuid().v4();
-    final newSession = ChatSession(
-      id: newId,
-      title: '新对话',
-      createdAt: DateTime.now(),
-      lastUpdatedAt: DateTime.now(),
-    );
+  void _createNewSession() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
 
-    setState(() {
-      _sessions.insert(0, newSession);
-      _currentSessionId = newId;
-      _messages = [
-        {
-          'role': 'assistant',
-          'content': '你好！我是你的 AI 健身教练。我可以帮你制定计划、解答健身疑问，或者估算食物热量。请问今天想练什么？'
-        }
-      ];
-    });
-    _saveSessionsMeta();
-    _saveMessages(newId);
+    final newId = const Uuid().v4();
+    final now = DateTime.now().toIso8601String();
+
+    try {
+      await Supabase.instance.client.from('chat_sessions').insert({
+        'id': newId,
+        'user_id': uid,
+        'title': '新对话',
+        'created_at': now,
+        'last_updated_at': now,
+      });
+
+      final newSession = ChatSession(
+        id: newId,
+        title: '新对话',
+        createdAt: DateTime.parse(now),
+        lastUpdatedAt: DateTime.parse(now),
+      );
+
+      setState(() {
+        _sessions.insert(0, newSession);
+        _currentSessionId = newId;
+        _messages = [
+          {
+            'role': 'assistant',
+            'content': '你好！我是你的 AI 健身教练。我可以帮你制定计划、解答健身疑问，或者估算食物热量。请问今天想练什么？'
+          }
+        ];
+      });
+      // Initial welcome message isn't usually saved to DB until user interacts,
+      // or we can save it now. Let's save it now to be consistent.
+      await _persistMessage(newId, 'assistant', _messages[0]['content']!);
+    } catch (e) {
+      debugPrint('Create session error: $e');
+    }
   }
 
   void _selectSession(String sessionId) async {
     if (sessionId == _currentSessionId) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = prefs.getStringList('chat_history_$sessionId');
-
     setState(() {
       _currentSessionId = sessionId;
-      if (messagesJson != null) {
-        _messages = messagesJson
-            .map((e) => Map<String, String>.from(jsonDecode(e)))
-            .toList();
-      } else {
-        _messages = [];
-      }
+      _messages = []; // Clear current while loading
+      _loading = true;
     });
 
-    final index = _sessions.indexWhere((s) => s.id == sessionId);
-    if (index != -1) {
-      final session = _sessions.removeAt(index);
-      _sessions.insert(0, session);
-      _saveSessionsMeta();
-    }
+    try {
+      final res = await Supabase.instance.client
+          .from('chat_messages')
+          .select()
+          .eq('session_id', sessionId)
+          .order('created_at', ascending: true);
 
-    _scrollToBottom();
+      setState(() {
+        _messages = (res as List)
+            .map((e) => {
+                  'role': e['role'] as String,
+                  'content': e['content'] as String,
+                })
+            .toList();
+        _loading = false;
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('Load messages error: $e');
+      setState(() => _loading = false);
+    }
   }
 
   void _deleteSession(String sessionId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('chat_history_$sessionId');
+    try {
+      await Supabase.instance.client
+          .from('chat_sessions')
+          .delete()
+          .eq('id', sessionId);
 
-    setState(() {
-      _sessions.removeWhere((s) => s.id == sessionId);
-      if (_currentSessionId == sessionId) {
-        if (_sessions.isNotEmpty) {
-          _selectSession(_sessions.first.id);
-        } else {
-          _createNewSession();
+      setState(() {
+        _sessions.removeWhere((s) => s.id == sessionId);
+        if (_currentSessionId == sessionId) {
+          if (_sessions.isNotEmpty) {
+            _selectSession(_sessions.first.id);
+          } else {
+            _createNewSession();
+          }
         }
-      } else {
-        _saveSessionsMeta();
-      }
-    });
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('删除失败: $e')));
+    }
   }
 
-  void _updateSessionTitleIfNeeded(String userText) {
+  void _updateSessionTitleIfNeeded(String userText) async {
     final index = _sessions.indexWhere((s) => s.id == _currentSessionId);
     if (index != -1) {
       final session = _sessions[index];
+      // Logic: Update title if it's default
       if (session.title == '新对话' || _messages.length <= 3) {
+        final newTitle =
+            userText.length > 15 ? '${userText.substring(0, 15)}...' : userText;
         setState(() {
-          session.title = userText.length > 15
-              ? '${userText.substring(0, 15)}...'
-              : userText;
+          session.title = newTitle;
           session.lastUpdatedAt = DateTime.now();
         });
-        _saveSessionsMeta();
+
+        await Supabase.instance.client.from('chat_sessions').update({
+          'title': newTitle,
+          'last_updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', _currentSessionId);
       } else {
         setState(() {
           session.lastUpdatedAt = DateTime.now();
         });
-        _saveSessionsMeta();
+        await Supabase.instance.client.from('chat_sessions').update({
+          'last_updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', _currentSessionId);
       }
     }
   }
 
-  Future<void> _loadAiConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _apiKey = prefs.getString('ai_api_key');
-      _baseUrl = prefs.getString('ai_base_url');
-      _systemPrompt = prefs.getString('ai_system_prompt');
-    });
+  // New helper to persist single message
+  Future<void> _persistMessage(
+      String sessionId, String role, String content) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await Supabase.instance.client.from('chat_messages').insert({
+        'session_id': sessionId,
+        'user_id': uid,
+        'role': role,
+        'content': content,
+      });
+    } catch (e) {
+      debugPrint('Persist message error: $e');
+    }
   }
 
+  // Deprecated local save
   Future<void> _saveMessages(String sessionId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = _messages.map((e) => jsonEncode(e)).toList();
-    await prefs.setStringList('chat_history_$sessionId', list);
+    // No-op, using _persistMessage instead
   }
 
   void _scrollToBottom() {
@@ -470,7 +556,7 @@ class _ChatPageState extends State<ChatPage> {
         }
       }).asFuture();
 
-      _saveMessages(_currentSessionId);
+      await _persistMessage(_currentSessionId, 'assistant', fullContent);
     } catch (e) {
       throw '连接 AI 失败: $e';
     }
@@ -494,7 +580,12 @@ class _ChatPageState extends State<ChatPage> {
         _messages.add({'role': 'user', 'content': text});
       }
     });
-    _saveMessages(_currentSessionId);
+    // _saveMessages(_currentSessionId);
+    if (text.isNotEmpty) {
+      await _persistMessage(_currentSessionId, 'user', text);
+    } else if (_selectedImageBytes != null) {
+      await _persistMessage(_currentSessionId, 'user', '📷 [图片已上传] $text');
+    }
 
     _controller.clear();
     _scrollToBottom();
@@ -509,7 +600,9 @@ class _ChatPageState extends State<ChatPage> {
               _messages.add(
                   {'role': 'assistant', 'content': '✅ 图片分析完成，正在结合视觉数据思考...'});
             });
-            _saveMessages(_currentSessionId);
+            // _saveMessages(_currentSessionId);
+            await _persistMessage(
+                _currentSessionId, 'assistant', '✅ 图片分析完成，正在结合视觉数据思考...');
             _scrollToBottom();
           }
         }
@@ -536,7 +629,8 @@ class _ChatPageState extends State<ChatPage> {
               });
             }
           });
-          _saveMessages(_currentSessionId);
+          // _saveMessages(_currentSessionId);
+          await _persistMessage(_currentSessionId, 'assistant', mockReply);
         }
       }
     } catch (e) {
@@ -544,7 +638,7 @@ class _ChatPageState extends State<ChatPage> {
         setState(() {
           _messages.add({'role': 'assistant', 'content': '⚠️ $e'});
         });
-        _saveMessages(_currentSessionId);
+        // _saveMessages(_currentSessionId);
       }
     } finally {
       if (mounted) {
