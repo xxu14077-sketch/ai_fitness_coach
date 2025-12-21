@@ -220,6 +220,57 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  Future<void> _upsertBodyMetric(String uid, double weight, double? fat) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+
+    final res = await Supabase.instance.client
+        .from('body_metrics')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('date', today)
+        .maybeSingle();
+
+    if (res != null) {
+      await Supabase.instance.client.from('body_metrics').update({
+        'weight_kg': weight,
+        'body_fat_pct': fat,
+      }).eq('id', res['id']);
+    } else {
+      await Supabase.instance.client.from('body_metrics').insert({
+        'user_id': uid,
+        'weight_kg': weight,
+        'body_fat_pct': fat,
+        'date': today,
+      });
+    }
+  }
+
+  Future<void> _upsertStrength(
+      String uid, String exercise, double weight) async {
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+
+    final res = await Supabase.instance.client
+        .from('strength_progress')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('date', today)
+        .eq('exercise', exercise)
+        .maybeSingle();
+
+    if (res != null) {
+      await Supabase.instance.client
+          .from('strength_progress')
+          .update({'weight_kg': weight}).eq('id', res['id']);
+    } else {
+      await Supabase.instance.client.from('strength_progress').insert({
+        'user_id': uid,
+        'date': today,
+        'exercise': exercise,
+        'weight_kg': weight,
+      });
+    }
+  }
+
   Future<void> _showRecordDialog() async {
     // Controllers for Body Weight
     final weightCtrl = TextEditingController();
@@ -331,58 +382,24 @@ class _HomePageState extends State<HomePage> {
                           final uid =
                               Supabase.instance.client.auth.currentUser?.id;
                           if (uid != null) {
-                            final today = DateTime.now()
-                                .toIso8601String()
-                                .substring(0, 10);
-
                             // 1. Save Body Metrics if entered
                             final w = double.tryParse(weightCtrl.text);
                             final f = double.tryParse(fatCtrl.text);
                             if (w != null) {
-                              await Supabase.instance.client
-                                  .from('body_metrics')
-                                  .upsert({
-                                'user_id': uid,
-                                'weight_kg': w,
-                                'body_fat_pct': f, // nullable
-                                'date': today,
-                              }, onConflict: 'user_id, date');
+                              await _upsertBodyMetric(uid, w, f);
                             }
 
                             // 2. Save Strength if entered
                             final bench = double.tryParse(benchCtrl.text);
                             final squat = double.tryParse(squatCtrl.text);
                             final deadlift = double.tryParse(deadliftCtrl.text);
-                            final List<Map<String, dynamic>> strengthRecords =
-                                [];
 
                             if (bench != null)
-                              strengthRecords.add({
-                                'user_id': uid,
-                                'date': today,
-                                'exercise': 'bench',
-                                'weight_kg': bench
-                              });
+                              await _upsertStrength(uid, 'bench', bench);
                             if (squat != null)
-                              strengthRecords.add({
-                                'user_id': uid,
-                                'date': today,
-                                'exercise': 'squat',
-                                'weight_kg': squat
-                              });
+                              await _upsertStrength(uid, 'squat', squat);
                             if (deadlift != null)
-                              strengthRecords.add({
-                                'user_id': uid,
-                                'date': today,
-                                'exercise': 'deadlift',
-                                'weight_kg': deadlift
-                              });
-
-                            if (strengthRecords.isNotEmpty) {
-                              await Supabase.instance.client
-                                  .from('strength_progress')
-                                  .upsert(strengthRecords);
-                            }
+                              await _upsertStrength(uid, 'deadlift', deadlift);
                           }
 
                           if (mounted) {
@@ -394,8 +411,9 @@ class _HomePageState extends State<HomePage> {
                         } catch (e) {
                           debugPrint('Error saving data: $e');
                           if (mounted)
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('保存失败: $e')));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text('保存失败: $e'),
+                                backgroundColor: Colors.red));
                         } finally {
                           if (mounted && dialogContext.mounted)
                             setDialogState(() => saving = false);

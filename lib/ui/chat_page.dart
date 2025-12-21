@@ -556,6 +556,57 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<String> _fetchUserStats() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return '';
+
+    String stats = '';
+
+    // 1. Weight
+    try {
+      final wRes = await Supabase.instance.client
+          .from('body_metrics')
+          .select('weight_kg, body_fat_pct, date')
+          .eq('user_id', uid)
+          .order('date', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      if (wRes != null) {
+        stats += '【用户身体数据】\n最新体重: ${wRes['weight_kg']}kg (记录于 ${wRes['date']})';
+        if (wRes['body_fat_pct'] != null)
+          stats += ', 体脂率: ${wRes['body_fat_pct']}%';
+        stats += '\n';
+      }
+    } catch (e) {}
+
+    // 2. Strength
+    try {
+      final sRes = await Supabase.instance.client
+          .from('strength_progress')
+          .select('exercise, weight_kg, date')
+          .eq('user_id', uid)
+          .order('date', ascending: false)
+          .limit(20);
+
+      if (sRes != null && (sRes as List).isNotEmpty) {
+        stats += '【用户力量数据 (PR/近期)】\n';
+        final Map<String, double> maxes = {};
+        for (var r in sRes) {
+          final ex = r['exercise'] as String;
+          final w = (r['weight_kg'] as num).toDouble();
+          if (!maxes.containsKey(ex) || w > maxes[ex]!) {
+            maxes[ex] = w;
+          }
+        }
+        maxes.forEach((k, v) {
+          stats += '- $k: ${v}kg\n';
+        });
+      }
+    } catch (e) {}
+
+    return stats;
+  }
+
   Future<void> _callAiApiStream(String userContent) async {
     await _loadAiConfig();
     await _loadKnowledge(); // Reload knowledge to be fresh
@@ -575,6 +626,8 @@ class _ChatPageState extends State<ChatPage> {
     } catch (e) {
       debugPrint('Memory load failed: $e');
     }
+
+    String statsContext = await _fetchUserStats();
     // ---------------------------------
 
     // --- RAG Lite Logic ---
@@ -601,6 +654,7 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     final finalSystemPrompt = '$baseSystemPrompt\n'
+        '$statsContext\n' // Inject Stats
         '$memoryContext\n' // Inject Memory
         '${ragContext.isEmpty ? '' : '\n请优先参考以下私有知识库内容回答：$ragContext'}';
 

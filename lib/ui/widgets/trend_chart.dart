@@ -2,7 +2,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
-import 'package:intl/intl.dart';
 
 class TrendChart extends StatefulWidget {
   const TrendChart({super.key});
@@ -12,8 +11,7 @@ class TrendChart extends StatefulWidget {
 }
 
 class _TrendChartState extends State<TrendChart> {
-  // Mode: 'weight' or 'strength'
-  String _mode = 'strength';
+  String _mode = 'strength'; // 'weight' or 'strength'
 
   // Strength Data
   List<FlSpot> _benchSpots = [];
@@ -59,7 +57,7 @@ class _TrendChartState extends State<TrendChart> {
           .select('date, weight_kg')
           .eq('user_id', uid)
           .order('date', ascending: true)
-          .limit(30); // Last 30 entries
+          .limit(30);
 
       if (mounted) {
         setState(() {
@@ -82,14 +80,19 @@ class _TrendChartState extends State<TrendChart> {
     final List<FlSpot> spots = [];
     if (data.isNotEmpty) {
       DateTime? firstDate;
-      // Use the same timeline relative to first record, or just sequential index?
-      // For trend, sequential index is often smoother if dates are sparse.
-      // Let's use sequential index for now to match previous behavior,
-      // or switch to date-based if we want to align everything.
-      // Let's use sequential index for simplicity in this "Trend" view.
-      for (int i = 0; i < data.length; i++) {
-        final w = (data[i]['weight_kg'] as num).toDouble();
-        spots.add(FlSpot(i.toDouble(), w));
+      try {
+        firstDate = DateTime.parse(data.first['date']);
+      } catch (_) {}
+
+      if (firstDate != null) {
+        for (var record in data) {
+          try {
+            final w = (record['weight_kg'] as num).toDouble();
+            final d = DateTime.parse(record['date']);
+            final diff = d.difference(firstDate).inDays.toDouble();
+            spots.add(FlSpot(diff, w));
+          } catch (_) {}
+        }
       }
     }
     _weightSpots = spots;
@@ -103,20 +106,31 @@ class _TrendChartState extends State<TrendChart> {
     };
 
     if (data.isNotEmpty) {
-      // We need a common X axis. Let's use "Entry Index" per exercise type for now,
-      // as users might not do all 3 on the same day.
-      // Actually, for a combined chart, date-based X is better.
-      // But to keep it simple and robust: just list them sequentially.
+      DateTime? firstDate;
+      try {
+        firstDate = DateTime.parse(data.first['date']);
+      } catch (_) {}
 
-      final Map<String, int> counters = {'bench': 0, 'squat': 0, 'deadlift': 0};
+      if (firstDate != null) {
+        for (var record in data) {
+          try {
+            final w = (record['weight_kg'] as num).toDouble();
+            String type = (record['exercise'] as String).toLowerCase();
 
-      for (var record in data) {
-        final w = (record['weight_kg'] as num).toDouble();
-        final type = record['exercise'] as String;
+            // Normalize names
+            if (type.contains('bench') || type.contains('卧推'))
+              type = 'bench';
+            else if (type.contains('squat') || type.contains('深蹲'))
+              type = 'squat';
+            else if (type.contains('dead') || type.contains('硬拉'))
+              type = 'deadlift';
 
-        if (spotsMap.containsKey(type)) {
-          spotsMap[type]!.add(FlSpot(counters[type]!.toDouble(), w));
-          counters[type] = counters[type]! + 1;
+            if (spotsMap.containsKey(type)) {
+              final d = DateTime.parse(record['date']);
+              final diff = d.difference(firstDate).inDays.toDouble();
+              spotsMap[type]!.add(FlSpot(diff, w));
+            }
+          } catch (_) {}
         }
       }
     }
@@ -133,10 +147,10 @@ class _TrendChartState extends State<TrendChart> {
           height: 240, child: Center(child: CircularProgressIndicator()));
     }
 
-    // Determine which spots to show based on mode
     List<LineChartBarData> lineBars = [];
     double minY = 9999;
     double maxY = 0;
+    double maxX = 0; // Track max X for axis range
     bool isEmpty = true;
 
     if (_mode == 'strength') {
@@ -147,22 +161,25 @@ class _TrendChartState extends State<TrendChart> {
       ];
       if (allSpots.isNotEmpty) isEmpty = false;
 
-      // Calculate Min/Max
       for (var s in allSpots) {
         if (s.y < minY) minY = s.y;
         if (s.y > maxY) maxY = s.y;
+        if (s.x > maxX) maxX = s.x;
       }
 
-      if (_showBench) lineBars.add(_buildLine(_benchSpots, Colors.blue));
-      if (_showSquat) lineBars.add(_buildLine(_squatSpots, Colors.orange));
-      if (_showDeadlift) lineBars.add(_buildLine(_deadliftSpots, Colors.red));
+      if (_showBench && _benchSpots.isNotEmpty)
+        lineBars.add(_buildLine(_benchSpots, Colors.blue));
+      if (_showSquat && _squatSpots.isNotEmpty)
+        lineBars.add(_buildLine(_squatSpots, Colors.orange));
+      if (_showDeadlift && _deadliftSpots.isNotEmpty)
+        lineBars.add(_buildLine(_deadliftSpots, Colors.red));
     } else {
-      // Weight Mode
       if (_weightSpots.isNotEmpty) {
         isEmpty = false;
         for (var s in _weightSpots) {
           if (s.y < minY) minY = s.y;
           if (s.y > maxY) maxY = s.y;
+          if (s.x > maxX) maxX = s.x;
         }
         lineBars.add(_buildLine(_weightSpots, AppTheme.primaryColor));
       }
@@ -171,10 +188,12 @@ class _TrendChartState extends State<TrendChart> {
     if (isEmpty) {
       minY = 0;
       maxY = 100;
+      maxX = 7;
     } else {
       minY = (minY - 5).floorToDouble();
       if (minY < 0) minY = 0;
       maxY = (maxY + 5).ceilToDouble();
+      if (maxX < 7) maxX = 7; // Minimum 1 week width
     }
 
     return AspectRatio(
@@ -194,22 +213,16 @@ class _TrendChartState extends State<TrendChart> {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.only(
-            right: 18,
-            left: 12,
-            top: 16,
-            bottom: 12,
-          ),
+          padding:
+              const EdgeInsets.only(right: 18, left: 12, top: 16, bottom: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row with Toggle
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Toggle Button Group
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.grey.shade100,
@@ -234,8 +247,6 @@ class _TrendChartState extends State<TrendChart> {
                 ),
               ),
               const SizedBox(height: 8),
-
-              // Filter Chips (Only for Strength)
               if (_mode == 'strength')
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -252,9 +263,7 @@ class _TrendChartState extends State<TrendChart> {
                     ],
                   ),
                 ),
-
               const SizedBox(height: 16),
-
               isEmpty
                   ? Expanded(
                       child: Center(
@@ -270,13 +279,10 @@ class _TrendChartState extends State<TrendChart> {
                           gridData: FlGridData(
                             show: true,
                             drawVerticalLine: false,
-                            horizontalInterval: 20, // Adaptive?
-                            getDrawingHorizontalLine: (value) {
-                              return FlLine(
+                            horizontalInterval: 20,
+                            getDrawingHorizontalLine: (value) => FlLine(
                                 color: Colors.grey.withOpacity(0.1),
-                                strokeWidth: 1,
-                              );
-                            },
+                                strokeWidth: 1),
                           ),
                           titlesData: FlTitlesData(
                             show: true,
@@ -285,13 +291,17 @@ class _TrendChartState extends State<TrendChart> {
                             topTitles: const AxisTitles(
                                 sideTitles: SideTitles(showTitles: false)),
                             bottomTitles: const AxisTitles(
-                                sideTitles: SideTitles(showTitles: false)),
+                                sideTitles: SideTitles(
+                                    showTitles:
+                                        false)), // Hide date labels for simplicity
                             leftTitles: const AxisTitles(
                                 sideTitles: SideTitles(showTitles: false)),
                           ),
                           borderData: FlBorderData(show: false),
                           minY: minY,
                           maxY: maxY,
+                          minX: 0,
+                          maxX: maxX,
                           lineBarsData: lineBars,
                         ),
                       ),
@@ -339,10 +349,7 @@ class _TrendChartState extends State<TrendChart> {
       barWidth: 3,
       isStrokeCapRound: true,
       dotData: const FlDotData(show: true),
-      belowBarData: BarAreaData(
-        show: true,
-        color: color.withOpacity(0.1),
-      ),
+      belowBarData: BarAreaData(show: true, color: color.withOpacity(0.1)),
     );
   }
 
@@ -358,9 +365,8 @@ class _TrendChartState extends State<TrendChart> {
       selectedColor: color,
       checkmarkColor: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: color),
-      ),
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: color)),
       padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
       visualDensity: VisualDensity.compact,
     );
