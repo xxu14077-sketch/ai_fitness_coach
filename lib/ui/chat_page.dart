@@ -51,10 +51,11 @@ class _ChatPageState extends State<ChatPage> {
   List<Map<String, dynamic>> _messages = [];
   bool _loading = false;
 
-  // Image Upload State
-  Uint8List? _selectedImageBytes;
+  // Media Upload State
+  Uint8List? _selectedMediaBytes;
   String? _selectedFileName;
-  bool _isAnalyzingImage = false;
+  bool _isVideo = false;
+  bool _isAnalyzing = false;
 
   // AI Service Config
   String? _apiKey;
@@ -394,32 +395,39 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickMedia() async {
     try {
-      final result = await FilePicker.platform
-          .pickFiles(type: FileType.image, withData: true);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'mp4', 'mov'],
+        withData: true,
+      );
       if (result != null) {
+        final file = result.files.first;
+        final ext = file.extension?.toLowerCase();
         setState(() {
-          _selectedFileName = result.files.first.name;
-          _selectedImageBytes = result.files.first.bytes;
+          _selectedFileName = file.name;
+          _selectedMediaBytes = file.bytes;
+          _isVideo = ['mp4', 'mov'].contains(ext);
         });
       }
     } catch (e) {
-      debugPrint('Error picking image: $e');
+      debugPrint('Error picking media: $e');
     }
   }
 
-  void _clearImage() {
+  void _clearMedia() {
     setState(() {
-      _selectedImageBytes = null;
+      _selectedMediaBytes = null;
       _selectedFileName = null;
+      _isVideo = false;
     });
   }
 
   Future<String?> _analyzeImageLocally(Uint8List bytes) async {
     if (!kIsWeb) return null;
     try {
-      setState(() => _isAnalyzingImage = true);
+      setState(() => _isAnalyzing = true);
       final blob = html.Blob([bytes]);
       final url = html.Url.createObjectUrlFromBlob(blob);
       final imgElement = html.ImageElement(src: url);
@@ -439,14 +447,112 @@ class _ChatPageState extends State<ChatPage> {
       if (resultJson != null) {
         final result = jsonDecode(resultJson);
         final keypoints = result['keypoints'] as List<dynamic>;
-        return "【AI 视觉分析数据】\n检测到人体骨架关键点：${keypoints.length}个。\n(AI 已自动将此视觉数据附加到对话中)";
+        return "【AI 视觉分析数据】\n检测到人体骨架关键点：${keypoints.length}个。\n(注意：如果这是健身器械照片，请忽略骨架数据，直接结合用户训练目标（增肌/减脂）推荐该器械的最佳使用方案，包括重量、组数、次数建议，以及如果没有该器械的替代方案。)";
       }
       return null;
     } catch (e) {
       debugPrint("Analysis failed: $e");
       return null;
     } finally {
-      setState(() => _isAnalyzingImage = false);
+      setState(() => _isAnalyzing = false);
+    }
+  }
+
+  Future<String?> _analyzeVideoLocally(Uint8List bytes) async {
+    if (!kIsWeb) return null;
+    setState(() => _isAnalyzing = true);
+
+    try {
+      // 1. Create Video Element
+      final blob = html.Blob([bytes], 'video/mp4');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final video = html.VideoElement();
+      video.src = url;
+      video.style.position = 'absolute';
+      video.style.top = '-9999px';
+      video.style.left = '-9999px';
+      video.muted = true;
+      video.autoplay = false;
+      html.document.body!.append(video);
+
+      // Wait for metadata
+      await video.onLoadedMetadata.first;
+
+      final duration = video.duration;
+      final width = video.videoWidth;
+      final height = video.videoHeight;
+
+      // 2. Sample 3 frames (Start, Middle, End)
+      final points = [0.2, 0.5, 0.8];
+      List<Map<String, dynamic>> frameResults = [];
+
+      for (var i = 0; i < points.length; i++) {
+        final time = duration * points[i];
+        video.currentTime = time;
+        await video.onSeeked.first;
+
+        // Draw to canvas
+        final canvas = html.CanvasElement(width: width, height: height);
+        final ctx = canvas.context2D;
+        ctx.drawImage(video, 0, 0);
+
+        // Create Image for TFJS
+        final imgUrl = canvas.toDataUrl('image/jpeg');
+        final img = html.ImageElement(src: imgUrl);
+        img.id = 'frame-analysis-$i-${DateTime.now().millisecondsSinceEpoch}';
+        img.style.position = 'absolute';
+        img.style.top = '-9999px';
+        img.style.left = '-9999px';
+        html.document.body!.append(img);
+        await img.onLoad.first;
+
+        // Run Analysis
+        try {
+          final promise =
+              js_util.callMethod(html.window, 'runAiAnalysis', [img.id]);
+          final resultJson = await js_util.promiseToFuture(promise);
+
+          if (resultJson != null) {
+            frameResults.add({
+              'phase': i == 0
+                  ? '下放阶段 (Descent)'
+                  : (i == 1 ? '底部/发力点 (Bottom)' : '上升/锁定 (Ascent)'),
+              'data': jsonDecode(resultJson)
+            });
+          }
+        } catch (e) {
+          debugPrint('Frame $i analysis failed: $e');
+        }
+
+        img.remove();
+      }
+
+      video.remove();
+      html.Url.revokeObjectUrl(url);
+
+      if (frameResults.isEmpty) return null;
+
+      // 3. Construct Report
+      final sb = StringBuffer();
+      sb.writeln('【AI 动态视频分析报告 (Dynamic Motion Tracking)】');
+      sb.writeln('共提取关键帧：${frameResults.length}帧 (采样点: 20%, 50%, 80%)');
+
+      for (var res in frameResults) {
+        final kp = (res['data']['keypoints'] as List).length;
+        sb.writeln('- ${res['phase']}: 捕获 $kp 个关键点');
+        // Inject raw keypoints for LLM to "see"
+        sb.writeln('  骨架数据: ${jsonEncode(res['data']['keypoints'])}');
+      }
+
+      sb.writeln(
+          '\n(指令：请根据以上3个关键动作阶段的骨架数据，生成一份详细的动作评分报告。包含：1. 总体评分(0-100) 2. 分阶段表现 3. 错误点标注 4. 改进建议。请像专业教练一样严格点评。)');
+
+      return sb.toString();
+    } catch (e) {
+      debugPrint("Video analysis error: $e");
+      return null;
+    } finally {
+      setState(() => _isAnalyzing = false);
     }
   }
 
@@ -611,7 +717,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty && _selectedImageBytes == null) return;
+    if (text.isEmpty && _selectedMediaBytes == null) return;
 
     String userContent = text;
 
@@ -621,11 +727,11 @@ class _ChatPageState extends State<ChatPage> {
 
     setState(() {
       _loading = true;
-      if (_selectedImageBytes != null) {
+      if (_selectedMediaBytes != null) {
         _messages.add({
           'id': const Uuid().v4(),
           'role': 'user',
-          'content': '📷 [图片已上传] $text'
+          'content': _isVideo ? '📹 [视频已上传] $text' : '📷 [图片已上传] $text'
         });
       } else {
         _messages
@@ -636,17 +742,26 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isNotEmpty) {
       await _persistMessage(
           _currentSessionId, 'user', text, _messages.last['id'] as String);
-    } else if (_selectedImageBytes != null) {
-      await _persistMessage(_currentSessionId, 'user', '📷 [图片已上传] $text',
+    } else if (_selectedMediaBytes != null) {
+      await _persistMessage(
+          _currentSessionId,
+          'user',
+          _isVideo ? '📹 [视频已上传] $text' : '📷 [图片已上传] $text',
           _messages.last['id'] as String);
     }
 
     _controller.clear();
     _scrollToBottom();
 
-    if (_selectedImageBytes != null) {
+    if (_selectedMediaBytes != null) {
       try {
-        final analysisReport = await _analyzeImageLocally(_selectedImageBytes!);
+        String? analysisReport;
+        if (_isVideo) {
+          analysisReport = await _analyzeVideoLocally(_selectedMediaBytes!);
+        } else {
+          analysisReport = await _analyzeImageLocally(_selectedMediaBytes!);
+        }
+
         if (analysisReport != null) {
           userContent += "\n\n$analysisReport";
           if (mounted) {
@@ -655,19 +770,23 @@ class _ChatPageState extends State<ChatPage> {
               _messages.add({
                 'id': assistantMsgId,
                 'role': 'assistant',
-                'content': '✅ 图片分析完成，正在结合视觉数据思考...'
+                'content': _isVideo
+                    ? '✅ 视频分析完成，正在生成动作评分报告...'
+                    : '✅ 图片分析完成，正在结合视觉数据思考...'
               });
             });
-            // _saveMessages(_currentSessionId);
-            await _persistMessage(_currentSessionId, 'assistant',
-                '✅ 图片分析完成，正在结合视觉数据思考...', assistantMsgId);
+            await _persistMessage(
+                _currentSessionId,
+                'assistant',
+                _isVideo ? '✅ 视频分析完成，正在生成动作评分报告...' : '✅ 图片分析完成，正在结合视觉数据思考...',
+                assistantMsgId);
             _scrollToBottom();
           }
         }
       } catch (e) {
-        debugPrint("Image analysis error: $e");
+        debugPrint("Media analysis error: $e");
       }
-      _clearImage();
+      _clearMedia();
     }
 
     try {
@@ -824,7 +943,10 @@ class _ChatPageState extends State<ChatPage> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2)),
                     const SizedBox(width: 8),
-                    Text(_isAnalyzingImage ? 'AI 正在分析图片...' : 'AI 正在思考...',
+                    Text(
+                        _isAnalyzing
+                            ? (_isVideo ? 'AI 正在分析视频...' : 'AI 正在分析图片...')
+                            : 'AI 正在思考...',
                         style:
                             const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
@@ -973,7 +1095,7 @@ class _ChatPageState extends State<ChatPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_selectedImageBytes != null)
+            if (_selectedMediaBytes != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 height: 80,
@@ -981,18 +1103,23 @@ class _ChatPageState extends State<ChatPage> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey.shade300),
-                  image: DecorationImage(
-                    image: MemoryImage(_selectedImageBytes!),
-                    fit: BoxFit.cover,
-                  ),
                 ),
                 child: Stack(
                   children: [
+                    _isVideo
+                        ? const Center(
+                            child: Icon(Icons.videocam,
+                                size: 40, color: Colors.blue))
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.memory(_selectedMediaBytes!,
+                                fit: BoxFit.cover, width: 80, height: 80),
+                          ),
                     Positioned(
                       top: 0,
                       right: 0,
                       child: GestureDetector(
-                        onTap: _clearImage,
+                        onTap: _clearMedia,
                         child: Container(
                           padding: const EdgeInsets.all(4),
                           decoration: const BoxDecoration(
@@ -1010,10 +1137,10 @@ class _ChatPageState extends State<ChatPage> {
             Row(
               children: [
                 IconButton(
-                  onPressed: _loading ? null : _pickImage,
-                  icon: Icon(Icons.camera_alt_rounded,
+                  onPressed: _loading ? null : _pickMedia,
+                  icon: Icon(Icons.add_a_photo_rounded,
                       color: Colors.grey.shade600),
-                  tooltip: '上传图片',
+                  tooltip: '上传图片或视频',
                 ),
                 const SizedBox(width: 8),
                 Expanded(
