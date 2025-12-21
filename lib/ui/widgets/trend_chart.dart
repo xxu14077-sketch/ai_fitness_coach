@@ -12,7 +12,16 @@ class TrendChart extends StatefulWidget {
 }
 
 class _TrendChartState extends State<TrendChart> {
-  List<FlSpot> _spots = [];
+  // Data for each exercise
+  List<FlSpot> _benchSpots = [];
+  List<FlSpot> _squatSpots = [];
+  List<FlSpot> _deadliftSpots = [];
+
+  // Toggles
+  bool _showBench = true;
+  bool _showSquat = true;
+  bool _showDeadlift = true;
+
   bool _loading = true;
   String? _error;
 
@@ -30,30 +39,54 @@ class _TrendChartState extends State<TrendChart> {
         return;
       }
 
-      // Fetch last 7 records
+      // Fetch last 30 days records? Or just last 20 entries per type
       final res = await Supabase.instance.client
-          .from('body_metrics')
-          .select('date, weight_kg')
+          .from('strength_progress')
+          .select('date, exercise, weight_kg')
           .eq('user_id', uid)
-          .order('date', ascending: false)
-          .limit(7);
+          .order('date', ascending: true); // Get oldest first for chart
 
-      final data = (res as List).reversed.toList(); // Oldest first
+      final data = res as List;
 
       if (data.isEmpty) {
         if (mounted) setState(() => _loading = false);
         return;
       }
 
-      final List<FlSpot> spots = [];
-      for (int i = 0; i < data.length; i++) {
-        final w = data[i]['weight_kg'] as num;
-        spots.add(FlSpot(i.toDouble(), w.toDouble()));
+      // Process data
+      final Map<String, List<FlSpot>> spotsMap = {
+        'bench': [],
+        'squat': [],
+        'deadlift': []
+      };
+
+      // We need to map dates to X-axis values (0, 1, 2...).
+      // Simple approach: Linear index based on unique dates?
+      // Or just day index? Let's use day difference from first record.
+
+      if (data.isNotEmpty) {
+        DateTime? firstDate;
+
+        for (var record in data) {
+          final dateStr = record['date'] as String;
+          final date = DateTime.parse(dateStr);
+          firstDate ??= date;
+
+          final diff = date.difference(firstDate).inDays.toDouble();
+          final w = (record['weight_kg'] as num).toDouble();
+          final type = record['exercise'] as String;
+
+          if (spotsMap.containsKey(type)) {
+            spotsMap[type]!.add(FlSpot(diff, w));
+          }
+        }
       }
 
       if (mounted) {
         setState(() {
-          _spots = spots;
+          _benchSpots = spotsMap['bench']!;
+          _squatSpots = spotsMap['squat']!;
+          _deadliftSpots = spotsMap['deadlift']!;
           _loading = false;
         });
       }
@@ -71,14 +104,17 @@ class _TrendChartState extends State<TrendChart> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const SizedBox(
-          height: 200, child: Center(child: CircularProgressIndicator()));
+          height: 240, child: Center(child: CircularProgressIndicator()));
     }
 
-    // If no data, show empty state or mock with "Demo" label
-    if (_spots.isEmpty) {
+    final bool isEmpty =
+        _benchSpots.isEmpty && _squatSpots.isEmpty && _deadliftSpots.isEmpty;
+
+    if (isEmpty) {
       return AspectRatio(
-          aspectRatio: 1.70,
+          aspectRatio: 1.5,
           child: Container(
+              margin: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 borderRadius: const BorderRadius.all(Radius.circular(18)),
                 color: Colors.white,
@@ -95,23 +131,42 @@ class _TrendChartState extends State<TrendChart> {
                   child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.show_chart, size: 48, color: Colors.grey),
+                  const Icon(Icons.fitness_center,
+                      size: 48, color: Colors.grey),
                   const SizedBox(height: 8),
-                  const Text("暂无体重记录", style: TextStyle(color: Colors.grey)),
+                  const Text("暂无力量记录", style: TextStyle(color: Colors.grey)),
                   TextButton(onPressed: _fetchData, child: const Text("刷新"))
                 ],
               ))));
     }
 
     // Determine Y axis range
-    double minY = _spots.map((e) => e.y).reduce((a, b) => a < b ? a : b);
-    double maxY = _spots.map((e) => e.y).reduce((a, b) => a > b ? a : b);
-    minY = (minY - 2).floorToDouble();
-    maxY = (maxY + 2).ceilToDouble();
+    double minY = 9999;
+    double maxY = 0;
+
+    final allSpots = [
+      if (_showBench) ..._benchSpots,
+      if (_showSquat) ..._squatSpots,
+      if (_showDeadlift) ..._deadliftSpots,
+    ];
+
+    if (allSpots.isNotEmpty) {
+      for (var s in allSpots) {
+        if (s.y < minY) minY = s.y;
+        if (s.y > maxY) maxY = s.y;
+      }
+      minY = (minY - 5).floorToDouble();
+      if (minY < 0) minY = 0;
+      maxY = (maxY + 5).ceilToDouble();
+    } else {
+      minY = 0;
+      maxY = 100;
+    }
 
     return AspectRatio(
-      aspectRatio: 1.70,
+      aspectRatio: 1.5,
       child: Container(
+        margin: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           borderRadius: const BorderRadius.all(Radius.circular(18)),
           color: Colors.white,
@@ -128,39 +183,59 @@ class _TrendChartState extends State<TrendChart> {
           padding: const EdgeInsets.only(
             right: 18,
             left: 12,
-            top: 24,
+            top: 16,
             bottom: 12,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(left: 8.0, bottom: 8.0),
-                    child: Text(
-                      '体重趋势 (kg)',
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '三大项容量 (Total/kg)',
                       style: TextStyle(
                         color: AppTheme.secondaryColor,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 16),
-                    onPressed: _fetchData,
-                  )
-                ],
+                    IconButton(
+                      icon: const Icon(Icons.refresh, size: 18),
+                      onPressed: _fetchData,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(height: 8),
+              // Filter Chips
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFilterChip('卧推', Colors.blue, _showBench,
+                        (v) => setState(() => _showBench = v)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('深蹲', Colors.orange, _showSquat,
+                        (v) => setState(() => _showSquat = v)),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('硬拉', Colors.red, _showDeadlift,
+                        (v) => setState(() => _showDeadlift = v)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               Expanded(
                 child: LineChart(
                   LineChartData(
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      horizontalInterval: 1,
+                      horizontalInterval: 20,
                       getDrawingHorizontalLine: (value) {
                         return FlLine(
                           color: Colors.grey.withOpacity(0.1),
@@ -182,38 +257,37 @@ class _TrendChartState extends State<TrendChart> {
                         sideTitles: SideTitles(showTitles: false),
                       ),
                     ),
-                    borderData: FlBorderData(
-                      show: false,
-                    ),
-                    minX: 0,
-                    maxX: (_spots.length - 1).toDouble(),
+                    borderData: FlBorderData(show: false),
                     minY: minY,
                     maxY: maxY,
                     lineBarsData: [
-                      LineChartBarData(
-                        spots: _spots,
-                        isCurved: true,
-                        gradient: const LinearGradient(
-                          colors: [
-                            AppTheme.primaryColor,
-                            Colors.blueAccent,
-                          ],
+                      if (_showBench)
+                        LineChartBarData(
+                          spots: _benchSpots,
+                          isCurved: true,
+                          color: Colors.blue,
+                          barWidth: 3,
+                          isStrokeCapRound: true,
+                          dotData: const FlDotData(show: true),
                         ),
-                        barWidth: 4,
-                        isStrokeCapRound: true,
-                        dotData: const FlDotData(show: true),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          gradient: LinearGradient(
-                            colors: [
-                              AppTheme.primaryColor.withOpacity(0.3),
-                              Colors.blueAccent.withOpacity(0.0),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
+                      if (_showSquat)
+                        LineChartBarData(
+                          spots: _squatSpots,
+                          isCurved: true,
+                          color: Colors.orange,
+                          barWidth: 3,
+                          isStrokeCapRound: true,
+                          dotData: const FlDotData(show: true),
                         ),
-                      ),
+                      if (_showDeadlift)
+                        LineChartBarData(
+                          spots: _deadliftSpots,
+                          isCurved: true,
+                          color: Colors.red,
+                          barWidth: 3,
+                          isStrokeCapRound: true,
+                          dotData: const FlDotData(show: true),
+                        ),
                     ],
                   ),
                 ),
@@ -222,6 +296,26 @@ class _TrendChartState extends State<TrendChart> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFilterChip(
+      String label, Color color, bool selected, ValueChanged<bool> onSelected) {
+    return FilterChip(
+      label: Text(label,
+          style:
+              TextStyle(color: selected ? Colors.white : color, fontSize: 12)),
+      selected: selected,
+      onSelected: onSelected,
+      backgroundColor: Colors.white,
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: color),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+      visualDensity: VisualDensity.compact,
     );
   }
 }

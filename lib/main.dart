@@ -220,9 +220,10 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  Future<void> _showRecordWeightDialog() async {
-    final weightCtrl = TextEditingController();
-    final fatCtrl = TextEditingController();
+  Future<void> _showRecordStrengthDialog() async {
+    final benchCtrl = TextEditingController();
+    final squatCtrl = TextEditingController();
+    final deadliftCtrl = TextEditingController();
     bool saving = false;
 
     await showDialog(
@@ -230,26 +231,43 @@ class _HomePageState extends State<HomePage> {
       builder: (dialogContext) =>
           StatefulBuilder(builder: (context, setDialogState) {
         return AlertDialog(
-          title: const Text('记录今日数据'),
+          title: const Text('记录三大项成绩 (PR/Max)'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: weightCtrl,
+                controller: benchCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: '体重 (kg)',
+                  labelText: '卧推 (Bench Press)',
                   suffixText: 'kg',
+                  prefixIcon: Icon(Icons.fitness_center, size: 18),
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: fatCtrl,
+                controller: squatCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: '体脂率 (%)',
-                  suffixText: '%',
+                  labelText: '深蹲 (Squat)',
+                  suffixText: 'kg',
+                  prefixIcon: Icon(Icons.accessibility_new, size: 18),
                 ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: deadliftCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '硬拉 (Deadlift)',
+                  suffixText: 'kg',
+                  prefixIcon: Icon(Icons.vertical_align_bottom, size: 18),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '提示：只需填写今日有新成绩的项目，留空则不记录。',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],
           ),
@@ -262,10 +280,12 @@ class _HomePageState extends State<HomePage> {
               onPressed: saving
                   ? null
                   : () async {
-                      final w = double.tryParse(weightCtrl.text);
-                      final f = double.tryParse(fatCtrl.text);
+                      final bench = double.tryParse(benchCtrl.text);
+                      final squat = double.tryParse(squatCtrl.text);
+                      final deadlift = double.tryParse(deadliftCtrl.text);
 
-                      if (w == null) return; // Basic validation
+                      if (bench == null && squat == null && deadlift == null)
+                        return;
 
                       setDialogState(() => saving = true);
 
@@ -273,32 +293,50 @@ class _HomePageState extends State<HomePage> {
                         final uid =
                             Supabase.instance.client.auth.currentUser?.id;
                         if (uid != null) {
-                          // Check if record exists for today
                           final today =
                               DateTime.now().toIso8601String().substring(0, 10);
+                          final List<Map<String, dynamic>> records = [];
 
-                          await Supabase.instance.client
-                              .from('body_metrics')
-                              .upsert({
-                            'user_id': uid,
-                            'weight_kg': w,
-                            'body_fat_pct': f,
-                            'date': today,
-                          },
-                                  onConflict:
-                                      'user_id, date'); // Assuming composite unique key
+                          if (bench != null) {
+                            records.add({
+                              'user_id': uid,
+                              'date': today,
+                              'exercise': 'bench',
+                              'weight_kg': bench
+                            });
+                          }
+                          if (squat != null) {
+                            records.add({
+                              'user_id': uid,
+                              'date': today,
+                              'exercise': 'squat',
+                              'weight_kg': squat
+                            });
+                          }
+                          if (deadlift != null) {
+                            records.add({
+                              'user_id': uid,
+                              'date': today,
+                              'exercise': 'deadlift',
+                              'weight_kg': deadlift
+                            });
+                          }
+
+                          if (records.isNotEmpty) {
+                            await Supabase.instance.client
+                                .from('strength_progress')
+                                .upsert(records);
+                          }
                         }
 
                         if (mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('记录已保存')));
-
-                          // Force refresh of the home page to update charts
+                              const SnackBar(content: Text('成绩已保存')));
                           setState(() {});
                         }
                       } catch (e) {
-                        debugPrint('Error saving weight: $e');
+                        debugPrint('Error saving strength: $e');
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text('保存失败: $e'),
@@ -345,9 +383,9 @@ class _HomePageState extends State<HomePage> {
       ),
       body: const _HomeBody(),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showRecordWeightDialog,
+        onPressed: _showRecordStrengthDialog,
         icon: const Icon(Icons.add),
-        label: const Text('记录体重'),
+        label: const Text('记录成绩'),
         backgroundColor: AppTheme.primaryColor,
       ),
     );
