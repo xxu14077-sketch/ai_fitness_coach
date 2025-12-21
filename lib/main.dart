@@ -223,62 +223,104 @@ class _HomePageState extends State<HomePage> {
   Future<void> _showRecordWeightDialog() async {
     final weightCtrl = TextEditingController();
     final fatCtrl = TextEditingController();
+    bool saving = false;
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('记录今日数据'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: weightCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '体重 (kg)',
-                suffixText: 'kg',
+      builder: (dialogContext) =>
+          StatefulBuilder(builder: (context, setDialogState) {
+        return AlertDialog(
+          title: const Text('记录今日数据'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: weightCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '体重 (kg)',
+                  suffixText: 'kg',
+                ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: fatCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '体脂率 (%)',
+                  suffixText: '%',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(context),
+              child: const Text('取消'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: fatCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '体脂率 (%)',
-                suffixText: '%',
-              ),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final w = double.tryParse(weightCtrl.text);
+                      final f = double.tryParse(fatCtrl.text);
+
+                      if (w == null) return; // Basic validation
+
+                      setDialogState(() => saving = true);
+
+                      try {
+                        final uid =
+                            Supabase.instance.client.auth.currentUser?.id;
+                        if (uid != null) {
+                          // Check if record exists for today
+                          final today =
+                              DateTime.now().toIso8601String().substring(0, 10);
+
+                          await Supabase.instance.client
+                              .from('body_metrics')
+                              .upsert({
+                            'user_id': uid,
+                            'weight_kg': w,
+                            'body_fat_pct': f,
+                            'date': today,
+                          },
+                                  onConflict:
+                                      'user_id, date'); // Assuming composite unique key
+                        }
+
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('记录已保存')));
+
+                          // Force refresh of the home page to update charts
+                          setState(() {});
+                        }
+                      } catch (e) {
+                        debugPrint('Error saving weight: $e');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text('保存失败: $e'),
+                              backgroundColor: Colors.red));
+                        }
+                      } finally {
+                        if (mounted && dialogContext.mounted) {
+                          setDialogState(() => saving = false);
+                        }
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('保存'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final w = double.tryParse(weightCtrl.text);
-              final f = double.tryParse(fatCtrl.text);
-              if (w != null) {
-                final uid = Supabase.instance.client.auth.currentUser?.id;
-                if (uid != null) {
-                  await Supabase.instance.client.from('body_metrics').insert({
-                    'user_id': uid,
-                    'weight_kg': w,
-                    'body_fat_pct': f,
-                    'date': DateTime.now().toIso8601String().substring(0, 10),
-                  });
-                }
-              }
-              if (mounted) Navigator.pop(context);
-              // Trigger refresh? The chart has a refresh button.
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('记录已保存，请刷新图表')));
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
+        );
+      }),
     );
   }
 
