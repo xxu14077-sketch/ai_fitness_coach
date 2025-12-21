@@ -223,25 +223,45 @@ class _HomePageState extends State<HomePage> {
   Future<void> _upsertBodyMetric(String uid, double weight, double? fat) async {
     final today = DateTime.now().toIso8601String().substring(0, 10);
 
-    final res = await Supabase.instance.client
-        .from('body_metrics')
-        .select('id')
-        .eq('user_id', uid)
-        .eq('date', today)
-        .maybeSingle();
+    try {
+      // Fetch ALL matching records to handle duplicates
+      final res = await Supabase.instance.client
+          .from('body_metrics')
+          .select('id')
+          .eq('user_id', uid)
+          .eq('date', today);
 
-    if (res != null) {
-      await Supabase.instance.client.from('body_metrics').update({
-        'weight_kg': weight,
-        'body_fat_pct': fat,
-      }).eq('id', res['id']);
-    } else {
-      await Supabase.instance.client.from('body_metrics').insert({
-        'user_id': uid,
-        'weight_kg': weight,
-        'body_fat_pct': fat,
-        'date': today,
-      });
+      final List data = res as List;
+
+      if (data.isNotEmpty) {
+        // Update the first one
+        final idToUpdate = data.first['id'];
+        await Supabase.instance.client.from('body_metrics').update({
+          'weight_kg': weight,
+          'body_fat_pct': fat,
+        }).eq('id', idToUpdate);
+
+        // Delete duplicates if any
+        if (data.length > 1) {
+          for (int i = 1; i < data.length; i++) {
+            await Supabase.instance.client
+                .from('body_metrics')
+                .delete()
+                .eq('id', data[i]['id']);
+          }
+        }
+      } else {
+        // Insert new
+        await Supabase.instance.client.from('body_metrics').insert({
+          'user_id': uid,
+          'weight_kg': weight,
+          'body_fat_pct': fat,
+          'date': today,
+        });
+      }
+    } catch (e) {
+      debugPrint("Upsert Body Metric Error: $e");
+      rethrow;
     }
   }
 
@@ -249,25 +269,41 @@ class _HomePageState extends State<HomePage> {
       String uid, String exercise, double weight) async {
     final today = DateTime.now().toIso8601String().substring(0, 10);
 
-    final res = await Supabase.instance.client
-        .from('strength_progress')
-        .select('id')
-        .eq('user_id', uid)
-        .eq('date', today)
-        .eq('exercise', exercise)
-        .maybeSingle();
-
-    if (res != null) {
-      await Supabase.instance.client
+    try {
+      final res = await Supabase.instance.client
           .from('strength_progress')
-          .update({'weight_kg': weight}).eq('id', res['id']);
-    } else {
-      await Supabase.instance.client.from('strength_progress').insert({
-        'user_id': uid,
-        'date': today,
-        'exercise': exercise,
-        'weight_kg': weight,
-      });
+          .select('id')
+          .eq('user_id', uid)
+          .eq('date', today)
+          .eq('exercise', exercise);
+
+      final List data = res as List;
+
+      if (data.isNotEmpty) {
+        final idToUpdate = data.first['id'];
+        await Supabase.instance.client
+            .from('strength_progress')
+            .update({'weight_kg': weight}).eq('id', idToUpdate);
+
+        if (data.length > 1) {
+          for (int i = 1; i < data.length; i++) {
+            await Supabase.instance.client
+                .from('strength_progress')
+                .delete()
+                .eq('id', data[i]['id']);
+          }
+        }
+      } else {
+        await Supabase.instance.client.from('strength_progress').insert({
+          'user_id': uid,
+          'date': today,
+          'exercise': exercise,
+          'weight_kg': weight,
+        });
+      }
+    } catch (e) {
+      debugPrint("Upsert Strength Error: $e");
+      rethrow;
     }
   }
 
