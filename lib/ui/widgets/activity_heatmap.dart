@@ -225,7 +225,7 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              const Text('Less ',
+              const Text('少 ',
                   style: TextStyle(fontSize: 10, color: Colors.grey)),
               _buildLegendBox(0),
               const SizedBox(width: 2),
@@ -234,7 +234,7 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
               _buildLegendBox(2),
               const SizedBox(width: 2),
               _buildLegendBox(3),
-              const Text(' More',
+              const Text(' 多',
                   style: TextStyle(fontSize: 10, color: Colors.grey)),
             ],
           ),

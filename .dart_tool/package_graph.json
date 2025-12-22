@@ -11,6 +11,7 @@
         "file_picker",
         "fl_chart",
         "flutter",
+        "flutter_local_notifications",
         "flutter_markdown",
         "flutter_tts",
         "http",
@@ -18,6 +19,7 @@
         "shared_preferences",
         "speech_to_text",
         "supabase_flutter",
+        "timezone",
         "universal_html",
         "url_launcher",
         "uuid"
@@ -50,6 +52,17 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications",
+      "version": "18.0.1",
+      "dependencies": [
+        "clock",
+        "flutter",
+        "flutter_local_notifications_linux",
+        "flutter_local_notifications_platform_interface",
+        "timezone"
       ]
     },
     {
@@ -968,6 +981,34 @@
       "version": "1.0.0",
       "dependencies": [
         "fixnum"
+      ]
+    },
+    {
+      "name": "timezone",
+      "version": "0.10.1",
+      "dependencies": [
+        "http",
+        "path"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications_platform_interface",
+      "version": "8.0.0",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications_linux",
+      "version": "5.0.0",
+      "dependencies": [
+        "dbus",
+        "ffi",
+        "flutter",
+        "flutter_local_notifications_platform_interface",
+        "path",
+        "xdg_directories"
       ]
     }
   ],

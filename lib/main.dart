@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/storage.dart';
+import 'core/achievement_service.dart';
+import 'core/notification_service.dart';
 import 'ui/theme.dart';
 import 'core/config.dart';
 import 'ui/chat_page.dart';
@@ -8,9 +10,14 @@ import 'ui/plan_page.dart';
 import 'ui/vision_page.dart';
 import 'ui/widgets/trend_chart.dart';
 import 'ui/widgets/activity_heatmap.dart';
+import 'ui/community_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Notifications
+  await NotificationService().init();
+
   await Supabase.initialize(
     url: AppConfig.supabaseUrl,
     anonKey: AppConfig.supabaseAnonKey,
@@ -23,7 +30,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AI Fitness Coach',
+      title: 'AI 智能健身教练',
       theme: AppTheme.light,
       home: Supabase.instance.client.auth.currentUser == null
           ? const LoginPage()
@@ -111,7 +118,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 16),
               Text(
-                'AI Fitness Coach',
+                'AI 智能健身教练',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -182,6 +189,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _pages = const [
     ChatPage(),
     HomePage(), // The Dashboard
+    CommunityPage(), // The Community
   ];
 
   @override
@@ -205,6 +213,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: '功能',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: '社区',
           ),
         ],
       ),
@@ -555,10 +568,36 @@ class _HomeBodyState extends State<_HomeBody> {
   bool _loading = true;
   String? _error;
 
+  // Gamification Stats
+  int _streak = 0;
+  int _weeklyCurrent = 0;
+  int _weeklyTarget = 4;
+  bool _checkingIn = true;
+
   @override
   void initState() {
     super.initState();
     _fetchStatus();
+    _initGamification();
+  }
+
+  Future<void> _initGamification() async {
+    try {
+      final service = AchievementService();
+      await service.checkIn();
+      final progress = await service.getWeeklyProgress();
+
+      if (mounted) {
+        setState(() {
+          _streak = service.currentStreak;
+          _weeklyCurrent = progress['current'];
+          _weeklyTarget = progress['target'];
+          _checkingIn = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Gamification error: $e");
+    }
   }
 
   Future<void> _fetchStatus() async {
@@ -671,10 +710,124 @@ class _HomeBodyState extends State<_HomeBody> {
     final isPro = _status == 'active';
 
     return RefreshIndicator(
-      onRefresh: _fetchStatus,
+      onRefresh: () async {
+        await _fetchStatus();
+        await _initGamification();
+      },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Gamification Dashboard
+          Card(
+            color: Colors.white,
+            elevation: 2,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      // Streak
+                      Column(
+                        children: [
+                          const Icon(Icons.local_fire_department,
+                              color: Colors.orange, size: 32),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$_streak 天',
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('连续打卡',
+                              style:
+                                  TextStyle(fontSize: 12, color: Colors.grey)),
+                        ],
+                      ),
+                      // Weekly Goal
+                      Column(
+                        children: [
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SizedBox(
+                                width: 50,
+                                height: 50,
+                                child: CircularProgressIndicator(
+                                  value: _weeklyTarget > 0
+                                      ? (_weeklyCurrent / _weeklyTarget)
+                                          .clamp(0.0, 1.0)
+                                      : 0,
+                                  backgroundColor: Colors.grey.shade200,
+                                  color: AppTheme.primaryColor,
+                                  strokeWidth: 6,
+                                ),
+                              ),
+                              Text(
+                                '$_weeklyCurrent/$_weeklyTarget',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text('本周目标',
+                              style:
+                                  TextStyle(fontSize: 12, color: Colors.grey)),
+                        ],
+                      ),
+                      // Level / Badges
+                      Column(
+                        children: [
+                          Icon(
+                              _streak >= 100
+                                  ? Icons.military_tech
+                                  : (_streak >= 30
+                                      ? Icons.verified
+                                      : Icons.star),
+                              color: Colors.amber,
+                              size: 32),
+                          const SizedBox(height: 4),
+                          Text(
+                            _streak >= 100
+                                ? '健身达人'
+                                : (_streak >= 30
+                                    ? '月度标兵'
+                                    : (_streak >= 7 ? '高级教练' : '新手')),
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('当前等级',
+                              style:
+                                  TextStyle(fontSize: 12, color: Colors.grey)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_checkingIn)
+                    const LinearProgressIndicator(minHeight: 2)
+                  else if (_streak > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        '🎉 今日已签到！继续保持！',
+                        style: TextStyle(color: Colors.green, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // User Welcome Card
           Card(
             color: AppTheme.secondaryColor,
@@ -702,7 +855,7 @@ class _HomeBodyState extends State<_HomeBody> {
                               ),
                             ),
                             Text(
-                              user?.email?.split('@')[0] ?? 'User',
+                              user?.email?.split('@')[0] ?? '用户',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
@@ -764,7 +917,7 @@ class _HomeBodyState extends State<_HomeBody> {
             padding: EdgeInsets.all(8.0),
             child: Center(
               child: Text(
-                'v1.1 - Charts Enabled',
+                'v1.2 - 游戏化功能已启用',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ),

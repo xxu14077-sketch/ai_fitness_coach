@@ -1,7 +1,8 @@
 import 'package:ai_fitness_coach/ui/settings_page.dart';
 import 'package:ai_fitness_coach/ui/chat_history_drawer.dart';
 import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
-import 'package:ai_fitness_coach/core/memory_service.dart'; // Import Memory Service
+import 'package:ai_fitness_coach/core/memory_service.dart';
+import 'package:ai_fitness_coach/core/achievement_service.dart'; // Import Achievement
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,6 +62,7 @@ class _ChatPageState extends State<ChatPage> {
   String? _apiKey;
   String? _baseUrl;
   String? _systemPrompt;
+  bool _isAdvancedCoach = false;
 
   @override
   void initState() {
@@ -176,6 +178,21 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _initializeData() async {
     await _loadAiConfig();
+
+    // Check Advanced Coach Status
+    try {
+      final achievementService = AchievementService();
+      // We assume data is already loaded or we check simple local state if possible
+      // For now, let's just use the service getter which reads from memory/prefs
+      if (achievementService.currentStreak >= 7) {
+        setState(() {
+          _isAdvancedCoach = true;
+        });
+      }
+    } catch (e) {
+      debugPrint("Check advanced coach error: $e");
+    }
+
     await _loadSessions();
     await _loadKnowledge(); // Load Knowledge
     if (_sessions.isEmpty) {
@@ -616,8 +633,15 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     final url = _baseUrl ?? 'https://api.deepseek.com/v1';
-    final baseSystemPrompt = _systemPrompt ??
+    String baseSystemPrompt = _systemPrompt ??
         'You are a helpful fitness coach. Please formatting your response with Markdown.';
+
+    if (_isAdvancedCoach) {
+      baseSystemPrompt +=
+          '\n[System: You are currently in "Advanced Coach Mode". Your tone should be strict, professional, motivating, and scientifically rigorous. Do not be too soft.]';
+    }
+
+    final finalSystemPrompt = baseSystemPrompt;
 
     // --- Personalized Memory Logic ---
     String memoryContext = '';
@@ -653,7 +677,7 @@ class _ChatPageState extends State<ChatPage> {
       }
     }
 
-    final finalSystemPrompt = '$baseSystemPrompt\n'
+    final finalPromptWithContext = '$finalSystemPrompt\n'
         '$statsContext\n' // Inject Stats
         '$memoryContext\n' // Inject Memory
         '${ragContext.isEmpty ? '' : '\n请优先参考以下私有知识库内容回答：$ragContext'}';
@@ -929,11 +953,19 @@ class _ChatPageState extends State<ChatPage> {
             _scaffoldKey.currentState?.openDrawer();
           },
         ),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.fitness_center, size: 20),
-            SizedBox(width: 8),
-            Text('AI 智能私教'),
+            const Icon(Icons.fitness_center, size: 20),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('AI 智能私教'),
+                if (_isAdvancedCoach)
+                  const Text('🏆 高级教练模式',
+                      style: TextStyle(fontSize: 10, color: Colors.amber)),
+              ],
+            ),
           ],
         ),
         centerTitle: true,

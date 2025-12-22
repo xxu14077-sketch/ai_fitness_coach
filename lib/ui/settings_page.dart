@@ -1,5 +1,6 @@
 import 'package:ai_fitness_coach/ui/knowledge_base_page.dart';
-import 'package:ai_fitness_coach/ui/profile_page.dart'; // Import Profile
+import 'package:ai_fitness_coach/ui/profile_page.dart';
+import 'package:ai_fitness_coach/core/achievement_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -16,6 +17,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _apiKeyController = TextEditingController();
   final _baseUrlController = TextEditingController();
   final _systemPromptController = TextEditingController();
+  final _weeklyGoalController = TextEditingController();
   bool _isLoading = true;
 
   // Default DeepSeek Config
@@ -53,6 +55,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _baseUrlController.text = res['ai_base_url'] ?? defaultBaseUrl;
             _systemPromptController.text =
                 res['ai_system_prompt'] ?? defaultSystemPrompt;
+            _weeklyGoalController.text =
+                (res['weekly_workout_goal'] ?? 4).toString();
             _isLoading = false;
           });
           return;
@@ -118,6 +122,20 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildSectionHeader('🏆 目标设置', Icons.flag),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _weeklyGoalController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: '每周训练目标 (天数)',
+                      hintText: '4',
+                      border: OutlineInputBorder(),
+                      helperText: '设置您的每周目标，AI 会督促您完成！',
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
                   _buildSectionHeader('🧠 AI 模型配置', Icons.psychology),
                   const SizedBox(height: 16),
                   const Text(
@@ -130,7 +148,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     controller: _apiKeyController,
                     obscureText: true,
                     decoration: const InputDecoration(
-                      labelText: 'API Key',
+                      labelText: 'API 密钥 (API Key)',
                       hintText: 'sk-xxxxxxxx',
                       border: OutlineInputBorder(),
                       helperText: '您的密钥仅保存在本地设备，不会上传。',

@@ -22,7 +22,7 @@ class _PlanPageState extends State<PlanPage> {
   String? _generatedPlan;
 
   // 用户状态数据
-  String _goal = '增肌 (Hypertrophy)';
+  String _goal = '增肌';
   String _equipment = '健身房全套设施';
   double _sleepQuality = 7.0; // 1-10
   double _soreness = 3.0; // 1-10 (酸痛程度)
@@ -345,10 +345,7 @@ class _PlanPageState extends State<PlanPage> {
             const Text('每日状态打卡',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            _buildDropdown(
-                '训练目标',
-                _goal,
-                ['增肌 (Hypertrophy)', '力量 (Strength)', '减脂 (Fat Loss)'],
+            _buildDropdown('训练目标', _goal, ['增肌', '力量', '减脂'],
                 (v) => setState(() => _goal = v!)),
             _buildDropdown(
                 '今日部位',
