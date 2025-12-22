@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:ai_fitness_coach/ui/theme.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class PlanPage extends StatefulWidget {
   const PlanPage({super.key});
@@ -27,7 +31,39 @@ class _PlanPageState extends State<PlanPage> {
   Future<void> _generatePlan() async {
     setState(() => _loading = true);
 
-    // 构建提示词，包含超个性化参数
+    // 1. Load API Config
+    final prefs = await SharedPreferences.getInstance();
+    String? apiKey = prefs.getString('ai_api_key');
+    String? baseUrl = prefs.getString('ai_base_url');
+
+    // Try cloud if local is missing
+    if (apiKey == null) {
+      final uid = Supabase.instance.client.auth.currentUser?.id;
+      if (uid != null) {
+        try {
+          final res = await Supabase.instance.client
+              .from('user_settings')
+              .select()
+              .eq('user_id', uid)
+              .maybeSingle();
+          if (res != null) {
+            apiKey = res['ai_api_key'];
+            baseUrl = res['ai_base_url'];
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (apiKey == null || apiKey.isEmpty) {
+      setState(() {
+        _loading = false;
+        _generatedPlan =
+            "【需要配置 API Key】\n请先前往右上角设置页面，配置您的 AI API Key (推荐 DeepSeek)，才能生成个性化计划。\n\n目前为您展示模拟数据：\n\n${_getMockReply()}";
+      });
+      return;
+    }
+
+    // 2. Build Prompt
     final prompt = '''
 作为一名顶级体能教练，请为我制定今天的训练计划。
 我的数据如下：
@@ -42,40 +78,60 @@ class _PlanPageState extends State<PlanPage> {
 2. 请列出具体的动作、组数、次数和建议重量（或 RPE）。
 3. 使用渐进式超负荷原则。
 4. 输出格式清晰，包含热身、正式训练和冷身。
+请直接输出 Markdown 格式的计划内容。
 ''';
 
     try {
-      // 调用 AI (复用 chat-stream 或专用函数)
-      final res = await Supabase.instance.client.functions.invoke(
-        'chat-stream',
-        body: {'query': prompt},
-      );
+      final url = baseUrl ?? 'https://api.deepseek.com/v1';
+      var apiUrl = Uri.parse('$url/chat/completions');
 
-      final data = res.data;
-      String result = '';
-      if (data is Map && data.containsKey('text')) {
-        result = data['text'];
-      } else {
-        result = data.toString();
+      // Handle known provider paths
+      if (url.contains('api.deepseek.com')) {
+        final path = Uri.parse(url).path;
+        apiUrl = Uri.parse('https://api.deepseek.com$path/chat/completions');
       }
 
-      setState(() {
-        _generatedPlan = result;
-      });
+      final res = await http.post(
+        apiUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
+        },
+        body: jsonEncode({
+          'model': 'deepseek-chat',
+          'messages': [
+            {
+              'role': 'system',
+              'content': 'You are a professional fitness coach.'
+            },
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.7,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        final content = data['choices'][0]['message']['content'];
+        setState(() {
+          _generatedPlan = content;
+        });
+      } else {
+        throw 'API Error: ${res.statusCode}';
+      }
     } catch (e) {
-      // 模拟生成（当后端未连接时）
-      await Future.delayed(const Duration(seconds: 2));
+      // Fallback
       setState(() {
-        _generatedPlan = _getMockPlan();
+        _generatedPlan = "生成失败 ($e)。\n\n为您展示模拟数据：\n\n${_getMockReply()}";
       });
     } finally {
       setState(() => _loading = false);
     }
   }
 
-  String _getMockPlan() {
+  String _getMockReply() {
     bool isRecoveryDay = _sleepQuality < 5 || _soreness > 7;
-
+    // ... (Keep existing mock logic)
     if (isRecoveryDay) {
       return '''
 【AI 智能调整：主动恢复日】
@@ -373,9 +429,7 @@ class _PlanPageState extends State<PlanPage> {
             ],
           ),
           const Divider(height: 24),
-          Text(_generatedPlan!,
-              style: const TextStyle(
-                  fontSize: 15, height: 1.6, color: Color(0xFF334155))),
+          MarkdownBody(data: _generatedPlan ?? ''),
         ],
       ),
     );
