@@ -168,6 +168,12 @@ class _LoginPageState extends State<LoginPage> {
                     textAlign: TextAlign.center,
                   ),
                 ),
+              const SizedBox(height: 20),
+              const Text(
+                'v1.3 - 社区功能已上线',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
