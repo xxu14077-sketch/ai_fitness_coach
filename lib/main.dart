@@ -190,7 +190,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = 2; // Default to Community for testing
 
   final List<Widget> _pages = const [
     ChatPage(),
