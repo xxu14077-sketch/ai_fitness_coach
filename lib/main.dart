@@ -220,16 +220,15 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  Future<void> _upsertBodyMetric(String uid, double weight, double? fat) async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-
+  Future<void> _upsertBodyMetric(
+      String uid, double weight, double? fat, String date) async {
     try {
       // Fetch ALL matching records to handle duplicates
       final res = await Supabase.instance.client
           .from('body_metrics')
           .select('id')
           .eq('user_id', uid)
-          .eq('date', today);
+          .eq('date', date);
 
       final List data = res as List;
 
@@ -256,7 +255,7 @@ class _HomePageState extends State<HomePage> {
           'user_id': uid,
           'weight_kg': weight,
           'body_fat_pct': fat,
-          'date': today,
+          'date': date,
         });
       }
     } catch (e) {
@@ -266,15 +265,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _upsertStrength(
-      String uid, String exercise, double weight) async {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-
+      String uid, String exercise, double weight, String date) async {
     try {
       final res = await Supabase.instance.client
           .from('strength_progress')
           .select('id')
           .eq('user_id', uid)
-          .eq('date', today)
+          .eq('date', date)
           .eq('exercise', exercise);
 
       final List data = res as List;
@@ -296,7 +293,7 @@ class _HomePageState extends State<HomePage> {
       } else {
         await Supabase.instance.client.from('strength_progress').insert({
           'user_id': uid,
-          'date': today,
+          'date': date,
           'exercise': exercise,
           'weight_kg': weight,
         });
@@ -318,6 +315,7 @@ class _HomePageState extends State<HomePage> {
     final deadliftCtrl = TextEditingController();
 
     bool saving = false;
+    DateTime selectedDate = DateTime.now();
 
     await showDialog(
       context: context,
@@ -336,66 +334,106 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             content: SizedBox(
-              height: 200,
+              height: 250,
               width: 300,
-              child: TabBarView(
+              child: Column(
                 children: [
-                  // Tab 1: Body Metrics
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: weightCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: '体重 (kg)',
-                          suffixText: 'kg',
-                          prefixIcon:
-                              Icon(Icons.monitor_weight_outlined, size: 18),
-                        ),
+                  // Date Picker Row
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            "记录日期: ${selectedDate.toIso8601String().substring(0, 10)}",
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primaryColor),
+                          ),
+                          const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: fatCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: '体脂率 (%)',
-                          suffixText: '%',
-                          prefixIcon: Icon(Icons.pie_chart_outline, size: 18),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                  // Tab 2: Strength
-                  SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                  const Divider(),
+                  Expanded(
+                    child: TabBarView(
                       children: [
-                        TextField(
-                          controller: benchCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: '卧推 (Bench)',
-                            suffixText: 'kg',
-                          ),
+                        // Tab 1: Body Metrics
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: weightCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: '体重 (kg)',
+                                suffixText: 'kg',
+                                prefixIcon: Icon(Icons.monitor_weight_outlined,
+                                    size: 18),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: fatCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: '体脂率 (%)',
+                                suffixText: '%',
+                                prefixIcon:
+                                    Icon(Icons.pie_chart_outline, size: 18),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: squatCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: '深蹲 (Squat)',
-                            suffixText: 'kg',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: deadliftCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: '硬拉 (Deadlift)',
-                            suffixText: 'kg',
+                        // Tab 2: Strength
+                        SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextField(
+                                controller: benchCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: '卧推 (Bench)',
+                                  suffixText: 'kg',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: squatCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: '深蹲 (Squat)',
+                                  suffixText: 'kg',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: deadliftCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: '硬拉 (Deadlift)',
+                                  suffixText: 'kg',
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -418,11 +456,14 @@ class _HomePageState extends State<HomePage> {
                           final uid =
                               Supabase.instance.client.auth.currentUser?.id;
                           if (uid != null) {
+                            final dateStr =
+                                selectedDate.toIso8601String().substring(0, 10);
+
                             // 1. Save Body Metrics if entered
                             final w = double.tryParse(weightCtrl.text);
                             final f = double.tryParse(fatCtrl.text);
                             if (w != null) {
-                              await _upsertBodyMetric(uid, w, f);
+                              await _upsertBodyMetric(uid, w, f, dateStr);
                             }
 
                             // 2. Save Strength if entered
@@ -431,11 +472,14 @@ class _HomePageState extends State<HomePage> {
                             final deadlift = double.tryParse(deadliftCtrl.text);
 
                             if (bench != null)
-                              await _upsertStrength(uid, 'bench', bench);
+                              await _upsertStrength(
+                                  uid, 'bench', bench, dateStr);
                             if (squat != null)
-                              await _upsertStrength(uid, 'squat', squat);
+                              await _upsertStrength(
+                                  uid, 'squat', squat, dateStr);
                             if (deadlift != null)
-                              await _upsertStrength(uid, 'deadlift', deadlift);
+                              await _upsertStrength(
+                                  uid, 'deadlift', deadlift, dateStr);
                           }
 
                           if (mounted) {
