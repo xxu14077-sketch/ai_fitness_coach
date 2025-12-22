@@ -30,24 +30,56 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
       // 84 days = 12 weeks
       final now = DateTime.now();
       final startDate = now.subtract(const Duration(days: 83));
+      final startDateStr = startDate.toIso8601String().substring(0, 10);
 
-      final res = await Supabase.instance.client
+      // 1. Fetch Workouts
+      final wRes = await Supabase.instance.client
           .from('workout_sessions')
           .select('created_at, completion_pct')
           .eq('user_id', uid)
-          .gte('created_at', startDate.toIso8601String());
+          .gte('created_at', startDateStr);
 
-      final List<dynamic> records = res as List;
+      // 2. Fetch Body Metrics
+      final bRes = await Supabase.instance.client
+          .from('body_metrics')
+          .select('date')
+          .eq('user_id', uid)
+          .gte('date', startDateStr);
 
-      // Map date string (YYYY-MM-DD) to max completion pct
-      final Map<String, int> dailyMax = {};
+      // 3. Fetch Strength Progress
+      final sRes = await Supabase.instance.client
+          .from('strength_progress')
+          .select('date')
+          .eq('user_id', uid)
+          .gte('date', startDateStr);
 
-      for (var r in records) {
+      final Map<String, int> dailyScore = {};
+
+      // Process Workouts (High Value)
+      for (var r in (wRes as List)) {
         final dateStr = (r['created_at'] as String).substring(0, 10);
         final pct = (r['completion_pct'] as int?) ?? 0;
-        if (!dailyMax.containsKey(dateStr) || pct > dailyMax[dateStr]!) {
-          dailyMax[dateStr] = pct;
+        final score = pct > 80 ? 3 : (pct > 50 ? 2 : 1);
+
+        if (!dailyScore.containsKey(dateStr) || score > dailyScore[dateStr]!) {
+          dailyScore[dateStr] = score;
         }
+      }
+
+      // Process Body Metrics (Medium Value)
+      for (var r in (bRes as List)) {
+        final dateStr = r['date'] as String;
+        // Recording weight is a valid activity (Level 1-2)
+        if (!dailyScore.containsKey(dateStr) || dailyScore[dateStr]! < 2) {
+          dailyScore[dateStr] = 2;
+        }
+      }
+
+      // Process Strength (High Value)
+      for (var r in (sRes as List)) {
+        final dateStr = r['date'] as String;
+        // Lifting is a high activity (Level 3)
+        dailyScore[dateStr] = 3;
       }
 
       // Generate last 84 days levels
@@ -56,15 +88,8 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
         final d = startDate.add(Duration(days: i));
         final key = d.toIso8601String().substring(0, 10);
 
-        if (dailyMax.containsKey(key)) {
-          final pct = dailyMax[key]!;
-          if (pct > 80) {
-            levels.add(3);
-          } else if (pct > 50) {
-            levels.add(2);
-          } else {
-            levels.add(1);
-          }
+        if (dailyScore.containsKey(key)) {
+          levels.add(dailyScore[key]!);
         } else {
           levels.add(0);
         }
@@ -91,14 +116,17 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
 
     // Calculate streak (simple version: count backwards from today until 0)
     int streak = 0;
-    for (int i = _activityLevels.length - 1; i >= 0; i--) {
-      if (_activityLevels[i] > 0) {
-        streak++;
-      } else {
-        // Allow 1 day gap? No, strict streak for now.
-        // If today is empty, check yesterday.
-        if (i == _activityLevels.length - 1) continue;
-        break;
+    bool todayChecked = false;
+    if (_activityLevels.isNotEmpty) {
+      if (_activityLevels.last > 0) todayChecked = true;
+
+      for (int i = _activityLevels.length - 1; i >= 0; i--) {
+        if (_activityLevels[i] > 0) {
+          streak++;
+        } else {
+          if (i == _activityLevels.length - 1) continue;
+          break;
+        }
       }
     }
 
@@ -107,7 +135,13 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.grey.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
+        ],
+        border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,20 +149,50 @@ class _ActivityHeatmapState extends State<ActivityHeatmap> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                '训练活跃度',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.secondaryColor,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '每日打卡',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.secondaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    todayChecked ? '今日已打卡 ✅' : '今日未打卡',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: todayChecked ? Colors.green : Colors.grey,
+                      fontWeight:
+                          todayChecked ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
               ),
-              Text(
-                '连续 $streak 天',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange.shade700,
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.local_fire_department,
+                        color: Colors.orange, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$streak 天连胜',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
